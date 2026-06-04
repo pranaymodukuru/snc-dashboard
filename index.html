@@ -1,0 +1,1266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nalgonda Knights — S&C Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:       #0a0c0f;
+    --surface:  #111318;
+    --card:     #161a22;
+    --border:   #1f2530;
+    --border2:  #2a3240;
+    --text:     #e8edf5;
+    --muted:    #6b7a90;
+    --accent:   #00c2ff;
+    --gold:     #f0c040;
+    --green:    #22c55e;
+    --yellow:   #f59e0b;
+    --red:      #ef4444;
+    --red-dim:  #7f1d1d;
+    --font-display: 'Bebas Neue', sans-serif;
+    --font-body:    'DM Sans', sans-serif;
+    --font-mono:    'JetBrains Mono', monospace;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 14px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── LOGIN SCREEN ── */
+  #login-screen {
+    position: fixed; inset: 0;
+    background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000;
+    background-image:
+      radial-gradient(ellipse 80% 60% at 50% 0%, rgba(0,194,255,0.07) 0%, transparent 70%),
+      repeating-linear-gradient(0deg, transparent, transparent 39px, var(--border) 39px, var(--border) 40px),
+      repeating-linear-gradient(90deg, transparent, transparent 39px, var(--border) 39px, var(--border) 40px);
+  }
+  #login-screen.hidden { display: none; }
+
+  .login-box {
+    width: 360px;
+    background: var(--card);
+    border: 1px solid var(--border2);
+    border-radius: 16px;
+    padding: 40px 36px;
+    box-shadow: 0 0 80px rgba(0,194,255,0.08), 0 24px 60px rgba(0,0,0,0.6);
+    animation: fadeUp 0.5s ease both;
+  }
+  .login-logo {
+    font-family: var(--font-display);
+    font-size: 32px;
+    letter-spacing: 3px;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .login-logo span { color: var(--accent); }
+  .login-sub {
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 32px;
+  }
+  .login-box label {
+    display: block;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .login-box input {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    padding: 12px 16px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+    margin-bottom: 20px;
+  }
+  .login-box input:focus { border-color: var(--accent); }
+  .login-btn {
+    width: 100%;
+    background: var(--accent);
+    color: #000;
+    border: none;
+    border-radius: 8px;
+    padding: 13px;
+    font-family: var(--font-display);
+    font-size: 18px;
+    letter-spacing: 2px;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.1s;
+  }
+  .login-btn:hover { opacity: 0.9; }
+  .login-btn:active { transform: scale(0.98); }
+  .login-error {
+    color: var(--red);
+    font-size: 12px;
+    text-align: center;
+    margin-top: 12px;
+    min-height: 18px;
+  }
+
+  /* ── APP SHELL ── */
+  #app { display: none; }
+  #app.visible { display: block; }
+
+  /* ── HEADER ── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: sticky; top: 0; z-index: 100;
+    backdrop-filter: blur(10px);
+  }
+  .header-left { display: flex; align-items: center; gap: 16px; }
+  .logo {
+    font-family: var(--font-display);
+    font-size: 24px;
+    letter-spacing: 3px;
+    color: var(--text);
+  }
+  .logo span { color: var(--accent); }
+  .live-badge {
+    background: rgba(34,197,94,0.15);
+    border: 1px solid rgba(34,197,94,0.3);
+    color: var(--green);
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-family: var(--font-mono);
+    display: flex; align-items: center; gap: 5px;
+  }
+  .live-dot {
+    width: 6px; height: 6px;
+    background: var(--green);
+    border-radius: 50%;
+    animation: pulse 1.5s ease infinite;
+  }
+  .header-right { display: flex; align-items: center; gap: 16px; }
+  .header-date {
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .logout-btn {
+    background: transparent;
+    border: 1px solid var(--border2);
+    color: var(--muted);
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: var(--font-body);
+    transition: all 0.2s;
+  }
+  .logout-btn:hover { border-color: var(--red); color: var(--red); }
+
+  /* ── NAV TABS ── */
+  .nav-tabs {
+    display: flex; gap: 0;
+    padding: 0 28px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  .nav-tab {
+    padding: 12px 20px;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+    transition: all 0.2s;
+    user-select: none;
+  }
+  .nav-tab:hover { color: var(--text); }
+  .nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ── MAIN LAYOUT ── */
+  main { padding: 24px 28px; max-width: 1400px; margin: 0 auto; }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; animation: fadeIn 0.3s ease; }
+
+  /* ── SECTION HEADER ── */
+  .section-header {
+    display: flex; align-items: baseline; gap: 12px;
+    margin-bottom: 20px;
+  }
+  .section-title {
+    font-family: var(--font-display);
+    font-size: 22px;
+    letter-spacing: 2px;
+    color: var(--text);
+  }
+  .section-sub {
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  /* ── STAT CARDS ROW ── */
+  .stat-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .stat-card:hover { border-color: var(--border2); }
+  .stat-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+  .stat-card.green::before { background: var(--green); }
+  .stat-card.yellow::before { background: var(--yellow); }
+  .stat-card.red::before { background: var(--red); }
+  .stat-card.blue::before { background: var(--accent); }
+  .stat-card.gold::before { background: var(--gold); }
+
+  .stat-label {
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .stat-value {
+    font-family: var(--font-display);
+    font-size: 38px;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .stat-card.green .stat-value { color: var(--green); }
+  .stat-card.yellow .stat-value { color: var(--yellow); }
+  .stat-card.red .stat-value { color: var(--red); }
+  .stat-card.blue .stat-value { color: var(--accent); }
+  .stat-card.gold .stat-value { color: var(--gold); }
+  .stat-note { font-size: 11px; color: var(--muted); }
+
+  /* ── GRID LAYOUTS ── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 16px; }
+  @media (max-width: 900px) {
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  }
+
+  /* ── PANEL ── */
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .panel-title {
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 16px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .panel-title span { color: var(--text); font-size: 10px; }
+
+  /* ── PLAYER TABLE ── */
+  .player-table { width: 100%; border-collapse: collapse; }
+  .player-table th {
+    text-align: left;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .player-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    vertical-align: middle;
+  }
+  .player-table tr:last-child td { border-bottom: none; }
+  .player-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+  /* ── STATUS BADGES ── */
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .badge-dot { width: 5px; height: 5px; border-radius: 50%; }
+  .badge.full    { background: rgba(34,197,94,0.12);  color: var(--green);  border: 1px solid rgba(34,197,94,0.25); }
+  .badge.modified{ background: rgba(245,158,11,0.12); color: var(--yellow); border: 1px solid rgba(245,158,11,0.25); }
+  .badge.recovery{ background: rgba(0,194,255,0.12);  color: var(--accent); border: 1px solid rgba(0,194,255,0.25); }
+  .badge.rehab   { background: rgba(239,68,68,0.12);  color: var(--red);    border: 1px solid rgba(239,68,68,0.25); }
+  .badge.unavailable { background: rgba(107,122,144,0.12); color: var(--muted); border: 1px solid var(--border2); }
+
+  .badge.full    .badge-dot { background: var(--green); }
+  .badge.modified .badge-dot { background: var(--yellow); }
+  .badge.recovery .badge-dot { background: var(--accent); }
+  .badge.rehab   .badge-dot { background: var(--red); }
+  .badge.unavailable .badge-dot { background: var(--muted); }
+
+  /* ── WELLNESS SCORES ── */
+  .score-cell { display: flex; align-items: center; gap: 6px; }
+  .score-pip {
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .score-pip.s1 { background: rgba(239,68,68,0.2);  color: var(--red); }
+  .score-pip.s2 { background: rgba(239,68,68,0.12); color: #f87171; }
+  .score-pip.s3 { background: rgba(245,158,11,0.15); color: var(--yellow); }
+  .score-pip.s4 { background: rgba(34,197,94,0.12); color: var(--green); }
+  .score-pip.s5 { background: rgba(34,197,94,0.2);  color: #4ade80; }
+
+  .alert-row td { background: rgba(239,68,68,0.04) !important; }
+
+  /* ── TRAFFIC LIGHT ── */
+  .tl {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 500;
+  }
+  .tl-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .tl.green .tl-dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .tl.yellow .tl-dot { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+  .tl.red .tl-dot { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  .tl.green { color: var(--green); }
+  .tl.yellow { color: var(--yellow); }
+  .tl.red { color: var(--red); }
+
+  /* ── LOAD BAR ── */
+  .load-bar-wrap { display: flex; align-items: center; gap: 10px; }
+  .load-bar-bg {
+    flex: 1; height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .load-bar-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+
+  /* ── SUBMISSION GRID ── */
+  .submission-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 8px;
+  }
+  .sub-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px;
+  }
+  .sub-card.submitted { border-color: rgba(34,197,94,0.2); }
+  .sub-card.missing   { border-color: rgba(239,68,68,0.2); }
+  .sub-icon { font-size: 14px; }
+
+  /* ── BOWLER WORKLOAD ── */
+  .bowler-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .bowler-row:last-child { border-bottom: none; }
+  .bowler-name { width: 110px; font-size: 13px; }
+  .bowler-type { color: var(--muted); font-size: 11px; font-family: var(--font-mono); }
+  .bowler-balls { font-family: var(--font-mono); font-size: 13px; width: 50px; text-align: right; }
+
+  /* ── ALERT BANNERS ── */
+  .alert-banner {
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.2);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    font-size: 13px;
+  }
+  .alert-banner .ab-icon { font-size: 16px; }
+  .alert-banner .ab-text { flex: 1; }
+  .alert-banner .ab-player { color: var(--red); font-weight: 600; }
+  .alert-banner .ab-detail { color: var(--muted); font-size: 11px; }
+
+  /* ── MINI BAR CHART ── */
+  .bar-chart { display: flex; align-items: flex-end; gap: 4px; height: 60px; }
+  .bar-col { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; }
+  .bar { width: 100%; border-radius: 3px 3px 0 0; transition: height 0.5s ease; min-height: 2px; }
+  .bar-label { font-size: 9px; color: var(--muted); font-family: var(--font-mono); }
+
+  /* ── MATCH COUNTDOWN ── */
+  .countdown-block {
+    display: flex; align-items: center; gap: 20px;
+    background: linear-gradient(135deg, rgba(240,192,64,0.08), rgba(240,192,64,0.03));
+    border: 1px solid rgba(240,192,64,0.2);
+    border-radius: 12px;
+    padding: 18px 22px;
+    margin-bottom: 24px;
+  }
+  .countdown-icon { font-size: 28px; }
+  .countdown-label { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); }
+  .countdown-main { font-family: var(--font-display); font-size: 28px; color: var(--gold); letter-spacing: 2px; }
+  .countdown-detail { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  /* ── PLAYER DETAIL MODAL ── */
+  .modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 500;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s;
+    backdrop-filter: blur(4px);
+  }
+  .modal-overlay.open { opacity: 1; pointer-events: all; }
+  .modal {
+    background: var(--card);
+    border: 1px solid var(--border2);
+    border-radius: 16px;
+    width: 600px; max-width: 95vw;
+    max-height: 85vh; overflow-y: auto;
+    padding: 28px;
+    transform: translateY(20px);
+    transition: transform 0.2s;
+  }
+  .modal-overlay.open .modal { transform: translateY(0); }
+  .modal-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
+  .modal-name { font-family: var(--font-display); font-size: 26px; letter-spacing: 2px; }
+  .modal-role { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .modal-close { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; padding: 4px; }
+  .modal-close:hover { color: var(--text); }
+  .modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
+  .modal-stat { background: var(--surface); border-radius: 8px; padding: 12px 14px; }
+  .modal-stat-label { font-size: 10px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
+  .modal-stat-value { font-family: var(--font-mono); font-size: 16px; }
+
+  /* ── WELLNESS HISTORY TABLE ── */
+  .mini-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  .mini-table th { font-size: 10px; color: var(--muted); text-align: center; padding: 4px 6px; }
+  .mini-table td { text-align: center; padding: 6px; font-family: var(--font-mono); font-size: 12px; }
+  .mini-table tr:not(:last-child) td { border-bottom: 1px solid var(--border); }
+
+  /* ── DATA SOURCE BANNER ── */
+  .data-banner {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    display: flex; align-items: center; gap: 10px;
+    font-size: 12px; color: var(--muted);
+    margin-bottom: 20px;
+  }
+  .data-banner.live { border-color: rgba(34,197,94,0.2); }
+  .data-banner.sample { border-color: rgba(245,158,11,0.2); color: var(--yellow); }
+
+  /* ── ANIMATIONS ── */
+  @keyframes fadeIn  { from { opacity: 0; }           to { opacity: 1; } }
+  @keyframes fadeUp  { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pulse   { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* ── SCROLLBAR ── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+  /* ── CLICKABLE ROWS ── */
+  .clickable { cursor: pointer; }
+  .clickable:hover td { background: rgba(0,194,255,0.04) !important; }
+
+  .empty-state { text-align: center; color: var(--muted); padding: 32px; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════ LOGIN SCREEN ══════════════ -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">NALGONDA <span>KNIGHTS</span></div>
+    <div class="login-sub">S&amp;C Management System</div>
+    <label for="pwd-input">Access Code</label>
+    <input type="password" id="pwd-input" placeholder="Enter password" autocomplete="current-password">
+    <button class="login-btn" onclick="tryLogin()">ENTER</button>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+
+<!-- ══════════════ APP ══════════════ -->
+<div id="app">
+
+  <header>
+    <div class="header-left">
+      <div class="logo">NALGONDA <span>KNIGHTS</span></div>
+      <div class="live-badge"><div class="live-dot"></div> LIVE DATA</div>
+    </div>
+    <div class="header-right">
+      <div class="header-date" id="header-date"></div>
+      <button class="logout-btn" onclick="logout()">Log Out</button>
+    </div>
+  </header>
+
+  <div class="nav-tabs">
+    <div class="nav-tab active" onclick="switchTab('dashboard', this)">Dashboard</div>
+    <div class="nav-tab" onclick="switchTab('wellness', this)">Wellness</div>
+    <div class="nav-tab" onclick="switchTab('session', this)">Session Load</div>
+    <div class="nav-tab" onclick="switchTab('bowling', this)">Bowling Load</div>
+    <div class="nav-tab" onclick="switchTab('squad', this)">Squad</div>
+  </div>
+
+  <main>
+
+    <!-- ── DASHBOARD TAB ── -->
+    <div id="tab-dashboard" class="tab-panel active">
+
+      <div class="data-banner sample">
+        ⚠ &nbsp;Showing sample data — connect Google Sheets to see live data (see setup guide)
+      </div>
+
+      <div class="countdown-block">
+        <div class="countdown-icon">🏏</div>
+        <div>
+          <div class="countdown-label">Next Match</div>
+          <div class="countdown-main" id="countdown-val">4 DAYS</div>
+          <div class="countdown-detail">vs Hyderabad Hawks · MA Chidambaram Stadium</div>
+        </div>
+      </div>
+
+      <div class="section-header">
+        <div class="section-title">SQUAD STATUS</div>
+        <div class="section-sub">Today</div>
+      </div>
+
+      <div class="stat-row">
+        <div class="stat-card green">
+          <div class="stat-label">Full Training</div>
+          <div class="stat-value" id="stat-full">3</div>
+          <div class="stat-note">Available for all drills</div>
+        </div>
+        <div class="stat-card yellow">
+          <div class="stat-label">Modified</div>
+          <div class="stat-value" id="stat-modified">5</div>
+          <div class="stat-note">Limited participation</div>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-label">Recovery</div>
+          <div class="stat-value" id="stat-recovery">3</div>
+          <div class="stat-note">Light session only</div>
+        </div>
+        <div class="stat-card red">
+          <div class="stat-label">Rehab</div>
+          <div class="stat-value" id="stat-rehab">2</div>
+          <div class="stat-note">Physio program</div>
+        </div>
+        <div class="stat-card gold">
+          <div class="stat-label">Unavailable</div>
+          <div class="stat-value" id="stat-unavailable">7</div>
+          <div class="stat-note">Not available today</div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <!-- Wellness Alerts -->
+        <div class="panel">
+          <div class="panel-title">🚨 Wellness Alerts <span id="alert-count">4 flagged</span></div>
+          <div id="wellness-alerts"></div>
+        </div>
+
+        <!-- Submission Tracker -->
+        <div class="panel">
+          <div class="panel-title">📋 Today's Submissions <span id="sub-summary"></span></div>
+          <div class="submission-grid" id="submission-grid"></div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <!-- Session Load -->
+        <div class="panel">
+          <div class="panel-title">⚡ Session Load — This Week</div>
+          <div class="stat-row" style="margin-bottom:16px;">
+            <div class="stat-card blue" style="padding:12px 16px;">
+              <div class="stat-label">Team Avg</div>
+              <div class="stat-value" style="font-size:28px;" id="avg-load">541</div>
+              <div class="stat-note">AU (Arbitrary Units)</div>
+            </div>
+            <div class="stat-card red" style="padding:12px 16px;">
+              <div class="stat-label">High Load (&gt;800)</div>
+              <div class="stat-value" style="font-size:28px;" id="high-load-count">2</div>
+              <div class="stat-note">Players flagged</div>
+            </div>
+          </div>
+          <div class="panel-title" style="margin-bottom:8px;">Load by Day</div>
+          <div class="bar-chart" id="load-bar-chart"></div>
+        </div>
+
+        <!-- Fast Bowler Workload -->
+        <div class="panel">
+          <div class="panel-title">🏏 Fast Bowler Workload <span>Weekly Balls</span></div>
+          <div id="bowler-workload"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── WELLNESS TAB ── -->
+    <div id="tab-wellness" class="tab-panel">
+      <div class="section-header">
+        <div class="section-title">WELLNESS MONITORING</div>
+        <div class="section-sub">Latest Submissions</div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Daily Readiness — All Players</div>
+        <div style="overflow-x:auto;">
+          <table class="player-table" id="wellness-table">
+            <thead>
+              <tr>
+                <th>Player</th>
+                <th>Date</th>
+                <th>Sleep</th>
+                <th>Energy</th>
+                <th>Soreness</th>
+                <th>Mood</th>
+                <th>Stress</th>
+                <th>Hamstring</th>
+                <th>Groin</th>
+                <th>Back</th>
+                <th>Overall</th>
+              </tr>
+            </thead>
+            <tbody id="wellness-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SESSION LOAD TAB ── -->
+    <div id="tab-session" class="tab-panel">
+      <div class="section-header">
+        <div class="section-title">SESSION RPE LOAD</div>
+        <div class="section-sub">Duration × RPE</div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">All Sessions</div>
+        <div style="overflow-x:auto;">
+          <table class="player-table" id="session-table">
+            <thead>
+              <tr>
+                <th>Player</th>
+                <th>Date</th>
+                <th>Session Type</th>
+                <th>Duration (min)</th>
+                <th>RPE</th>
+                <th>Session Load (AU)</th>
+                <th>Risk</th>
+              </tr>
+            </thead>
+            <tbody id="session-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── BOWLING LOAD TAB ── -->
+    <div id="tab-bowling" class="tab-panel">
+      <div class="section-header">
+        <div class="section-title">BOWLING LOAD</div>
+        <div class="section-sub">Fast Bowler Workload Management</div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Ball Count — All Entries</div>
+        <div style="overflow-x:auto;">
+          <table class="player-table" id="bowling-table">
+            <thead>
+              <tr>
+                <th>Player</th>
+                <th>Date</th>
+                <th>Match Balls</th>
+                <th>Net Balls</th>
+                <th>High Intensity</th>
+                <th>Total Balls</th>
+                <th>Workload</th>
+              </tr>
+            </thead>
+            <tbody id="bowling-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SQUAD TAB ── -->
+    <div id="tab-squad" class="tab-panel">
+      <div class="section-header">
+        <div class="section-title">SQUAD OVERVIEW</div>
+        <div class="section-sub">All Players</div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Player Database — click a row for full profile</div>
+        <div style="overflow-x:auto;">
+          <table class="player-table" id="squad-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Role</th>
+                <th>Type</th>
+                <th>Age</th>
+                <th>Injury History</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="squad-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ── PLAYER MODAL ── -->
+<div class="modal-overlay" id="player-modal" onclick="closeModal(event)">
+  <div class="modal" id="modal-content"></div>
+</div>
+
+<script>
+/* ══════════ CONFIG ══════════ */
+// Password is validated server-side via /api/auth (Netlify Function)
+// Never stored in this file — set DASHBOARD_PASSWORD in Netlify env vars
+
+let SESSION_TOKEN = null;
+
+/* ══════════ SAMPLE DATA ══════════ */
+const SAMPLE = {
+  players: [
+    {id:1,  name:"Ravi Kumar",      role:"All-Rounder",    type:"RMF",       age:27, injury:"Back 2024",      status:"Modified"},
+    {id:2,  name:"Arjun Singh",     role:"Batter",         type:"NA",        age:24, injury:"Hamstring 2025", status:"Modified"},
+    {id:3,  name:"Deepak Reddy",    role:"Bowler",         type:"RMF",       age:23, injury:"Groin 2025",     status:"Rehab"},
+    {id:4,  name:"Suresh Rao",      role:"All-Rounder",    type:"RF",        age:27, injury:"Hamstring 2025", status:"Unavailable"},
+    {id:5,  name:"Kiran Chandra",   role:"Wicketkeeper",   type:"Leg Spin",  age:31, injury:"Groin 2025",     status:"Modified"},
+    {id:6,  name:"Vikram Naidu",    role:"Bowler",         type:"Off Spin",  age:23, injury:"Hamstring 2025", status:"Full Training"},
+    {id:7,  name:"Pradeep Babu",    role:"Bowler",         type:"RMF",       age:34, injury:"Hamstring 2025", status:"Unavailable"},
+    {id:8,  name:"Sai Teja",        role:"Bowler",         type:"Leg Spin",  age:30, injury:"Groin 2025",     status:"Full Training"},
+    {id:9,  name:"Naresh Varma",    role:"Bowler",         type:"LF",        age:35, injury:"Hamstring 2025", status:"Unavailable"},
+    {id:10, name:"Ganesh Yadav",    role:"Wicketkeeper",   type:"LF",        age:19, injury:"Groin 2025",     status:"Unavailable"},
+    {id:11, name:"Rajesh Kumar",    role:"Bowler",         type:"RMF",       age:32, injury:"Hamstring 2025", status:"Unavailable"},
+    {id:12, name:"Anil Sharma",     role:"Batter",         type:"NA",        age:22, injury:"Groin 2025",     status:"Recovery"},
+    {id:13, name:"Santosh Goud",    role:"Wicketkeeper",   type:"LF",        age:30, injury:"Ankle 2025",     status:"Modified"},
+    {id:14, name:"Mahesh Reddy",    role:"Bowler",         type:"RF",        age:20, injury:"Groin 2025",     status:"Full Training"},
+    {id:15, name:"Rohit Nair",      role:"Batter",         type:"NA",        age:23, injury:"Hamstring 2025", status:"Unavailable"},
+    {id:16, name:"Ajay Verma",      role:"All-Rounder",    type:"LF",        age:24, injury:"None",           status:"Rehab"},
+    {id:17, name:"Sunil Raju",      role:"Bowler",         type:"RF",        age:33, injury:"Groin 2025",     status:"Modified"},
+    {id:18, name:"Tarun Mehta",     role:"Batter",         type:"NA",        age:28, injury:"Ankle 2025",     status:"Recovery"},
+    {id:19, name:"Nikhil Prasad",   role:"Wicketkeeper",   type:"Leg Spin",  age:19, injury:"Hamstring 2025", status:"Modified"},
+    {id:20, name:"Dev Kumar",       role:"Bowler",         type:"Off Spin",  age:19, injury:"Hamstring 2025", status:"Unavailable"},
+  ],
+  wellness: [
+    {date:"2026-06-04", player:"Ravi Kumar",    sleep:3, energy:4, soreness:3, mood:3, stress:2, hamstring:2, groin:4, back:4},
+    {date:"2026-06-04", player:"Arjun Singh",   sleep:5, energy:5, soreness:2, mood:4, stress:1, hamstring:3, groin:2, back:2},
+    {date:"2026-06-04", player:"Deepak Reddy",  sleep:2, energy:1, soreness:4, mood:2, stress:4, hamstring:4, groin:5, back:3},
+    {date:"2026-06-04", player:"Suresh Rao",    sleep:2, energy:2, soreness:3, mood:5, stress:2, hamstring:4, groin:3, back:4},
+    {date:"2026-06-04", player:"Kiran Chandra", sleep:4, energy:4, soreness:1, mood:5, stress:1, hamstring:2, groin:5, back:1},
+    {date:"2026-06-04", player:"Vikram Naidu",  sleep:2, energy:2, soreness:2, mood:1, stress:2, hamstring:2, groin:1, back:5},
+    {date:"2026-06-04", player:"Pradeep Babu",  sleep:4, energy:1, soreness:5, mood:3, stress:4, hamstring:3, groin:1, back:2},
+    {date:"2026-06-04", player:"Sai Teja",      sleep:4, energy:4, soreness:5, mood:1, stress:1, hamstring:4, groin:1, back:3},
+    {date:"2026-06-04", player:"Naresh Varma",  sleep:5, energy:5, soreness:5, mood:2, stress:3, hamstring:4, groin:3, back:3},
+    {date:"2026-06-04", player:"Ganesh Yadav",  sleep:1, energy:3, soreness:2, mood:5, stress:5, hamstring:3, groin:3, back:5},
+    {date:"2026-06-03", player:"Rajesh Kumar",  sleep:2, energy:2, soreness:4, mood:2, stress:1, hamstring:4, groin:2, back:2},
+    {date:"2026-06-03", player:"Anil Sharma",   sleep:5, energy:3, soreness:2, mood:3, stress:3, hamstring:2, groin:4, back:5},
+    {date:"2026-06-03", player:"Santosh Goud",  sleep:4, energy:1, soreness:4, mood:5, stress:3, hamstring:1, groin:5, back:2},
+    {date:"2026-06-03", player:"Mahesh Reddy",  sleep:5, energy:1, soreness:1, mood:1, stress:3, hamstring:1, groin:4, back:3},
+  ],
+  sessions: [
+    {date:"2026-06-04", player:"Ravi Kumar",    type:"Conditioning", duration:111, rpe:6},
+    {date:"2026-06-04", player:"Arjun Singh",   type:"Recovery",     duration:56,  rpe:9},
+    {date:"2026-06-04", player:"Deepak Reddy",  type:"Match",        duration:111, rpe:7},
+    {date:"2026-06-03", player:"Suresh Rao",    type:"Strength",     duration:96,  rpe:6},
+    {date:"2026-06-04", player:"Kiran Chandra", type:"Nets",         duration:77,  rpe:3},
+    {date:"2026-06-03", player:"Vikram Naidu",  type:"Strength",     duration:70,  rpe:4},
+    {date:"2026-06-03", player:"Pradeep Babu",  type:"Strength",     duration:92,  rpe:8},
+    {date:"2026-06-04", player:"Sai Teja",      type:"Strength",     duration:66,  rpe:3},
+    {date:"2026-06-04", player:"Naresh Varma",  type:"Nets",         duration:114, rpe:5},
+    {date:"2026-06-04", player:"Ganesh Yadav",  type:"Match",        duration:63,  rpe:3},
+    {date:"2026-06-04", player:"Rajesh Kumar",  type:"Match",        duration:111, rpe:9},
+    {date:"2026-06-03", player:"Anil Sharma",   type:"Match",        duration:67,  rpe:8},
+    {date:"2026-06-04", player:"Santosh Goud",  type:"Nets",         duration:120, rpe:4},
+    {date:"2026-06-02", player:"Mahesh Reddy",  type:"Match",        duration:94,  rpe:7},
+    {date:"2026-06-04", player:"Rohit Nair",    type:"Match",        duration:99,  rpe:9},
+    {date:"2026-06-04", player:"Ajay Verma",    type:"Nets",         duration:64,  rpe:7},
+    {date:"2026-06-03", player:"Sunil Raju",    type:"Nets",         duration:88,  rpe:6},
+    {date:"2026-06-04", player:"Tarun Mehta",   type:"Nets",         duration:70,  rpe:6},
+    {date:"2026-06-03", player:"Nikhil Prasad", type:"Match",        duration:110, rpe:8},
+    {date:"2026-06-03", player:"Dev Kumar",     type:"Recovery",     duration:83,  rpe:7},
+  ],
+  bowling: [
+    {date:"2026-06-04", player:"Ravi Kumar",    matchBalls:10, netBalls:26, highInt:34},
+    {date:"2026-06-04", player:"Deepak Reddy",  matchBalls:14, netBalls:12, highInt:28},
+    {date:"2026-06-04", player:"Suresh Rao",    matchBalls:5,  netBalls:28, highInt:34},
+    {date:"2026-06-03", player:"Pradeep Babu",  matchBalls:21, netBalls:41, highInt:17},
+    {date:"2026-06-03", player:"Naresh Varma",  matchBalls:7,  netBalls:40, highInt:15},
+    {date:"2026-06-03", player:"Ganesh Yadav",  matchBalls:5,  netBalls:23, highInt:13},
+    {date:"2026-06-03", player:"Rajesh Kumar",  matchBalls:9,  netBalls:12, highInt:21},
+    {date:"2026-06-04", player:"Mahesh Reddy",  matchBalls:24, netBalls:57, highInt:8},
+    {date:"2026-06-04", player:"Ajay Verma",    matchBalls:14, netBalls:47, highInt:33},
+    {date:"2026-06-03", player:"Sunil Raju",    matchBalls:11, netBalls:43, highInt:19},
+    {date:"2026-06-04", player:"Dev Kumar",     matchBalls:17, netBalls:13, highInt:7},
+    {date:"2026-06-04", player:"Vikram Naidu",  matchBalls:12, netBalls:51, highInt:26},
+    {date:"2026-06-04", player:"Sai Teja",      matchBalls:10, netBalls:37, highInt:9},
+  ],
+  status: [
+    {player:"Ravi Kumar",    status:"Modified",      notes:"Back stiffness"},
+    {player:"Arjun Singh",   status:"Modified",      notes:"No issues"},
+    {player:"Deepak Reddy",  status:"Rehab",         notes:"Hamstring tightness"},
+    {player:"Suresh Rao",    status:"Unavailable",   notes:"Back stiffness"},
+    {player:"Kiran Chandra", status:"Modified",      notes:"Groin soreness"},
+    {player:"Vikram Naidu",  status:"Full Training", notes:"Groin soreness"},
+    {player:"Pradeep Babu",  status:"Unavailable",   notes:"Hamstring tightness"},
+    {player:"Sai Teja",      status:"Full Training", notes:"No issues"},
+    {player:"Naresh Varma",  status:"Unavailable",   notes:"Hamstring tightness"},
+    {player:"Ganesh Yadav",  status:"Unavailable",   notes:"Back stiffness"},
+    {player:"Rajesh Kumar",  status:"Unavailable",   notes:"Groin soreness"},
+    {player:"Anil Sharma",   status:"Recovery",      notes:"No issues"},
+    {player:"Santosh Goud",  status:"Modified",      notes:"Back stiffness"},
+    {player:"Mahesh Reddy",  status:"Full Training", notes:"No issues"},
+    {player:"Rohit Nair",    status:"Unavailable",   notes:"Hamstring tightness"},
+    {player:"Ajay Verma",    status:"Rehab",         notes:"Hamstring tightness"},
+    {player:"Sunil Raju",    status:"Recovery",      notes:"Back stiffness"},
+    {player:"Tarun Mehta",   status:"Recovery",      notes:"No issues"},
+    {player:"Nikhil Prasad", status:"Modified",      notes:"No issues"},
+    {player:"Dev Kumar",     status:"Unavailable",   notes:"No issues"},
+  ]
+};
+
+let DATA = SAMPLE;
+
+/* ══════════ AUTH ══════════ */
+async function tryLogin() {
+  const val = document.getElementById('pwd-input').value.trim();
+  const err = document.getElementById('login-error');
+  const btn = document.querySelector('.login-btn');
+  if (!val) return;
+
+  btn.textContent = 'CHECKING...';
+  btn.style.opacity = '0.7';
+
+  try {
+    const res = await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: val })
+    });
+    const data = await res.json();
+
+    if (res.ok && data.token) {
+      SESSION_TOKEN = data.token;
+      sessionStorage.setItem('kn_token', data.token);
+      document.getElementById('login-screen').classList.add('hidden');
+      document.getElementById('app').classList.add('visible');
+      init();
+    } else {
+      err.textContent = 'Incorrect password. Try again.';
+      document.getElementById('pwd-input').value = '';
+      document.getElementById('pwd-input').focus();
+    }
+  } catch (e) {
+    err.textContent = 'Connection error. Please try again.';
+  } finally {
+    btn.textContent = 'ENTER';
+    btn.style.opacity = '1';
+  }
+}
+document.getElementById('pwd-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') tryLogin();
+});
+function logout() {
+  sessionStorage.removeItem('kn_token');
+  SESSION_TOKEN = null;
+  location.reload();
+}
+// Restore session
+const storedToken = sessionStorage.getItem('kn_token');
+if (storedToken) {
+  SESSION_TOKEN = storedToken;
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app').classList.add('visible');
+  setTimeout(init, 0);
+}
+
+/* ══════════ TAB SWITCHING ══════════ */
+function switchTab(id, el) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  el.classList.add('active');
+}
+
+/* ══════════ HELPERS ══════════ */
+function scorePip(v) {
+  return `<div class="score-pip s${v}">${v}</div>`;
+}
+function avgScore(r) {
+  return ((r.sleep + r.energy + r.soreness + r.mood + r.stress) / 5).toFixed(1);
+}
+function statusBadge(s) {
+  const map = {
+    "Full Training": "full", "Modified": "modified",
+    "Recovery": "recovery", "Rehab": "rehab", "Unavailable": "unavailable"
+  };
+  const cls = map[s] || "unavailable";
+  return `<span class="badge ${cls}"><span class="badge-dot"></span>${s}</span>`;
+}
+function loadColor(au) {
+  if (au > 800) return 'var(--red)';
+  if (au > 600) return 'var(--yellow)';
+  return 'var(--green)';
+}
+function trafficLight(balls) {
+  if (balls > 180) return `<span class="tl red"><span class="tl-dot"></span> HIGH RISK</span>`;
+  if (balls > 120) return `<span class="tl yellow"><span class="tl-dot"></span> MODERATE</span>`;
+  return `<span class="tl green"><span class="tl-dot"></span> NORMAL</span>`;
+}
+function trafficLightLoad(au) {
+  if (au > 800) return `<span class="tl red"><span class="tl-dot"></span> HIGH</span>`;
+  if (au > 600) return `<span class="tl yellow"><span class="tl-dot"></span> MODERATE</span>`;
+  return `<span class="tl green"><span class="tl-dot"></span> NORMAL</span>`;
+}
+
+/* ══════════ INIT ══════════ */
+async function init() {
+  const now = new Date();
+  document.getElementById('header-date').textContent =
+    now.toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short', year:'numeric'});
+
+  // Try live data from Netlify Forms
+  if (SESSION_TOKEN) {
+    try {
+      const res = await fetch('/api/submissions', {
+        headers: { 'Authorization': 'Bearer ' + SESSION_TOKEN }
+      });
+      if (res.ok) {
+        const live = await res.json();
+        // Merge live submissions with sample player list
+        DATA = { ...SAMPLE, ...live, players: SAMPLE.players };
+        document.querySelectorAll('.data-banner').forEach(b => {
+          b.classList.remove('sample'); b.classList.add('live');
+          b.innerHTML = '✅ &nbsp;Connected to Netlify Forms — live data';
+        });
+      }
+    } catch (e) {
+      console.warn('Could not fetch live submissions, using sample data', e);
+    }
+  }
+
+  renderDashboard();
+  renderWellness();
+  renderSession();
+  renderBowling();
+  renderSquad();
+}
+
+/* ══════════ DASHBOARD ══════════ */
+function renderDashboard() {
+  const statusCount = {};
+  DATA.status.forEach(s => { statusCount[s.status] = (statusCount[s.status]||0)+1; });
+  document.getElementById('stat-full').textContent        = statusCount['Full Training']||0;
+  document.getElementById('stat-modified').textContent    = statusCount['Modified']||0;
+  document.getElementById('stat-recovery').textContent    = statusCount['Recovery']||0;
+  document.getElementById('stat-rehab').textContent       = statusCount['Rehab']||0;
+  document.getElementById('stat-unavailable').textContent = statusCount['Unavailable']||0;
+
+  // Wellness Alerts (score ≤ 2 on any metric)
+  const today = new Date().toISOString().split('T')[0];
+  const todayW = DATA.wellness.filter(w => w.date === today);
+  const alerts = [];
+  todayW.forEach(w => {
+    const lows = [];
+    if (w.sleep    <= 2) lows.push('Sleep ' + w.sleep);
+    if (w.energy   <= 2) lows.push('Energy ' + w.energy);
+    if (w.soreness >= 4) lows.push('Soreness ' + w.soreness);
+    if (w.hamstring >= 4) lows.push('Hamstring ' + w.hamstring);
+    if (w.groin    >= 4) lows.push('Groin ' + w.groin);
+    if (w.back     >= 4) lows.push('Back ' + w.back);
+    if (lows.length) alerts.push({player: w.player, lows});
+  });
+  const alertsEl = document.getElementById('wellness-alerts');
+  document.getElementById('alert-count').textContent = alerts.length + ' flagged';
+  if (alerts.length === 0) {
+    alertsEl.innerHTML = '<div class="empty-state">✅ No alerts today</div>';
+  } else {
+    alertsEl.innerHTML = alerts.map(a =>
+      `<div class="alert-banner">
+        <div class="ab-icon">⚠️</div>
+        <div class="ab-text">
+          <span class="ab-player">${a.player}</span>
+          <div class="ab-detail">${a.lows.join(' · ')}</div>
+        </div>
+      </div>`
+    ).join('');
+  }
+
+  // Submission tracker
+  const submittedToday = new Set(todayW.map(w => w.player));
+  const allNames = DATA.players.map(p => p.name);
+  document.getElementById('sub-summary').textContent =
+    submittedToday.size + '/' + allNames.length + ' submitted';
+  document.getElementById('submission-grid').innerHTML = allNames.map(n =>
+    `<div class="sub-card ${submittedToday.has(n) ? 'submitted' : 'missing'}">
+      <span class="sub-icon">${submittedToday.has(n) ? '✅' : '❌'}</span>
+      <span>${n.split(' ')[0]}</span>
+    </div>`
+  ).join('');
+
+  // Session load
+  const loads = DATA.sessions.map(s => s.duration * s.rpe);
+  const avg = Math.round(loads.reduce((a,b)=>a+b,0) / loads.length);
+  const highCount = loads.filter(l => l > 800).length;
+  document.getElementById('avg-load').textContent = avg;
+  document.getElementById('high-load-count').textContent = highCount;
+
+  // Bar chart by day
+  const dayMap = {};
+  DATA.sessions.forEach(s => {
+    if (!dayMap[s.date]) dayMap[s.date] = [];
+    dayMap[s.date].push(s.duration * s.rpe);
+  });
+  const days = Object.keys(dayMap).sort().slice(-7);
+  const maxAvg = Math.max(...days.map(d => {
+    const arr = dayMap[d]; return arr.reduce((a,b)=>a+b,0)/arr.length;
+  }));
+  document.getElementById('load-bar-chart').innerHTML = days.map(d => {
+    const arr = dayMap[d];
+    const dayAvg = Math.round(arr.reduce((a,b)=>a+b,0)/arr.length);
+    const pct = Math.round((dayAvg / Math.max(maxAvg,1)) * 100);
+    const col = loadColor(dayAvg);
+    const label = d.slice(5).replace('-','/');
+    return `<div class="bar-col">
+      <div class="bar" style="height:${pct}%;background:${col};flex:none;width:100%;border-radius:3px 3px 0 0;"></div>
+      <div class="bar-label">${label}</div>
+    </div>`;
+  }).join('');
+
+  // Bowler workload — aggregate by player
+  const bowlerMap = {};
+  DATA.bowling.forEach(b => {
+    if (!bowlerMap[b.player]) bowlerMap[b.player] = 0;
+    bowlerMap[b.player] += b.matchBalls + b.netBalls + b.highInt;
+  });
+  const bowlersSorted = Object.entries(bowlerMap)
+    .sort((a,b) => b[1]-a[1])
+    .slice(0, 8);
+  const maxBalls = bowlersSorted[0]?.[1] || 1;
+  document.getElementById('bowler-workload').innerHTML = bowlersSorted.map(([name, balls]) => {
+    const pct = Math.round((balls / maxBalls) * 100);
+    const col = balls > 180 ? 'var(--red)' : balls > 120 ? 'var(--yellow)' : 'var(--green)';
+    const pInfo = DATA.players.find(p => p.name === name);
+    return `<div class="bowler-row">
+      <div>
+        <div class="bowler-name">${name.split(' ')[0]}</div>
+        <div class="bowler-type">${pInfo?.type||''}</div>
+      </div>
+      <div class="load-bar-wrap" style="flex:1;">
+        <div class="load-bar-bg">
+          <div class="load-bar-fill" style="width:${pct}%;background:${col};"></div>
+        </div>
+      </div>
+      <div class="bowler-balls" style="color:${col};">${balls}</div>
+      <div style="width:90px;text-align:right;">${trafficLight(balls)}</div>
+    </div>`;
+  }).join('');
+}
+
+/* ══════════ WELLNESS TABLE ══════════ */
+function renderWellness() {
+  const rows = [...DATA.wellness].sort((a,b) => b.date.localeCompare(a.date));
+  document.getElementById('wellness-tbody').innerHTML = rows.map(w => {
+    const avg = avgScore(w);
+    const isAlert = w.sleep<=2 || w.energy<=2 || w.soreness>=4 || w.hamstring>=4 || w.groin>=4 || w.back>=4;
+    return `<tr class="${isAlert ? 'alert-row' : ''}">
+      <td><strong>${w.player}</strong></td>
+      <td style="font-family:var(--font-mono);color:var(--muted);font-size:12px;">${w.date}</td>
+      <td>${scorePip(w.sleep)}</td>
+      <td>${scorePip(w.energy)}</td>
+      <td>${scorePip(w.soreness)}</td>
+      <td>${scorePip(w.mood)}</td>
+      <td>${scorePip(w.stress)}</td>
+      <td>${scorePip(w.hamstring)}</td>
+      <td>${scorePip(w.groin)}</td>
+      <td>${scorePip(w.back)}</td>
+      <td><span style="font-family:var(--font-mono);color:${parseFloat(avg)<3?'var(--yellow)':'var(--green)'};">${avg}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+/* ══════════ SESSION TABLE ══════════ */
+function renderSession() {
+  const rows = [...DATA.sessions].sort((a,b) => b.date.localeCompare(a.date));
+  document.getElementById('session-tbody').innerHTML = rows.map(s => {
+    const load = s.duration * s.rpe;
+    return `<tr>
+      <td><strong>${s.player}</strong></td>
+      <td style="font-family:var(--font-mono);color:var(--muted);font-size:12px;">${s.date}</td>
+      <td>${s.type}</td>
+      <td style="font-family:var(--font-mono);">${s.duration}</td>
+      <td style="font-family:var(--font-mono);">${s.rpe}</td>
+      <td style="font-family:var(--font-mono);color:${loadColor(load)};font-weight:600;">${load}</td>
+      <td>${trafficLightLoad(load)}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ══════════ BOWLING TABLE ══════════ */
+function renderBowling() {
+  const rows = [...DATA.bowling].sort((a,b) => b.date.localeCompare(a.date));
+  document.getElementById('bowling-tbody').innerHTML = rows.map(b => {
+    const total = b.matchBalls + b.netBalls + b.highInt;
+    return `<tr>
+      <td><strong>${b.player}</strong></td>
+      <td style="font-family:var(--font-mono);color:var(--muted);font-size:12px;">${b.date}</td>
+      <td style="font-family:var(--font-mono);">${b.matchBalls}</td>
+      <td style="font-family:var(--font-mono);">${b.netBalls}</td>
+      <td style="font-family:var(--font-mono);">${b.highInt}</td>
+      <td style="font-family:var(--font-mono);font-weight:600;">${total}</td>
+      <td>${trafficLight(total)}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ══════════ SQUAD TABLE ══════════ */
+function renderSquad() {
+  document.getElementById('squad-tbody').innerHTML = DATA.players.map(p =>
+    `<tr class="clickable" onclick="openModal(${p.id})">
+      <td><strong>${p.name}</strong></td>
+      <td>${p.role}</td>
+      <td><span style="font-family:var(--font-mono);color:var(--muted);font-size:12px;">${p.type}</span></td>
+      <td>${p.age}</td>
+      <td style="color:var(--muted);font-size:12px;">${p.injury}</td>
+      <td>${statusBadge(p.status)}</td>
+    </tr>`
+  ).join('');
+}
+
+/* ══════════ PLAYER MODAL ══════════ */
+function openModal(playerId) {
+  const p = DATA.players.find(x => x.id === playerId);
+  if (!p) return;
+  const statusInfo = DATA.status.find(s => s.player === p.name);
+  const wHistory = DATA.wellness.filter(w => w.player === p.name)
+    .sort((a,b) => b.date.localeCompare(a.date)).slice(0,5);
+  const sHistory = DATA.sessions.filter(s => s.player === p.name)
+    .sort((a,b) => b.date.localeCompare(a.date)).slice(0,5);
+
+  const modal = document.getElementById('modal-content');
+  modal.innerHTML = `
+    <div class="modal-header">
+      <div>
+        <div class="modal-name">${p.name}</div>
+        <div class="modal-role">${p.role} · ${p.type} · Age ${p.age}</div>
+      </div>
+      <button class="modal-close" onclick="closeModalBtn()">✕</button>
+    </div>
+    <div class="modal-grid">
+      <div class="modal-stat">
+        <div class="modal-stat-label">Current Status</div>
+        <div class="modal-stat-value">${statusBadge(statusInfo?.status||p.status)}</div>
+      </div>
+      <div class="modal-stat">
+        <div class="modal-stat-label">Coach Note</div>
+        <div class="modal-stat-value" style="font-size:13px;color:var(--muted);">${statusInfo?.notes||'—'}</div>
+      </div>
+      <div class="modal-stat">
+        <div class="modal-stat-label">Injury History</div>
+        <div class="modal-stat-value" style="font-size:13px;">${p.injury}</div>
+      </div>
+      <div class="modal-stat">
+        <div class="modal-stat-label">Bowling Type</div>
+        <div class="modal-stat-value">${p.type}</div>
+      </div>
+    </div>
+    ${wHistory.length ? `
+    <div class="panel-title" style="margin-bottom:8px;">Wellness History</div>
+    <div style="overflow-x:auto;margin-bottom:16px;">
+      <table class="mini-table">
+        <thead><tr>
+          <th style="text-align:left;">Date</th>
+          <th>Sleep</th><th>Energy</th><th>Soreness</th>
+          <th>Hamstring</th><th>Groin</th><th>Back</th>
+        </tr></thead>
+        <tbody>
+          ${wHistory.map(w => `<tr>
+            <td style="text-align:left;font-size:11px;color:var(--muted);">${w.date}</td>
+            <td>${scorePip(w.sleep)}</td>
+            <td>${scorePip(w.energy)}</td>
+            <td>${scorePip(w.soreness)}</td>
+            <td>${scorePip(w.hamstring)}</td>
+            <td>${scorePip(w.groin)}</td>
+            <td>${scorePip(w.back)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : ''}
+    ${sHistory.length ? `
+    <div class="panel-title" style="margin-bottom:8px;">Session Load History</div>
+    <table class="mini-table">
+      <thead><tr>
+        <th style="text-align:left;">Date</th>
+        <th style="text-align:left;">Type</th>
+        <th>Dur</th><th>RPE</th><th>Load AU</th>
+      </tr></thead>
+      <tbody>
+        ${sHistory.map(s => {
+          const load = s.duration * s.rpe;
+          return `<tr>
+            <td style="text-align:left;font-size:11px;color:var(--muted);">${s.date}</td>
+            <td style="text-align:left;font-size:11px;">${s.type}</td>
+            <td>${s.duration}</td>
+            <td>${s.rpe}</td>
+            <td style="color:${loadColor(load)};font-weight:600;">${load}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>` : ''}
+  `;
+  document.getElementById('player-modal').classList.add('open');
+}
+function closeModalBtn() {
+  document.getElementById('player-modal').classList.remove('open');
+}
+function closeModal(e) {
+  if (e.target === document.getElementById('player-modal')) closeModalBtn();
+}
+</script>
+</body>
+</html>
