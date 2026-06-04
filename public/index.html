@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Nalgonda Knights — S&C Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
   :root {
     --bg:       #0a0c0f;
@@ -511,6 +510,20 @@
     flex: 1; text-align: center; font-size: 9px; color: var(--muted); font-family: var(--font-mono);
   }
 
+  /* ── CUSTOM ALERT MODAL ── */
+  .custom-alert {
+    position: fixed; top: 20px; right: 20px;
+    background: var(--card);
+    border: 1px solid var(--red);
+    border-radius: 8px;
+    padding: 16px;
+    color: var(--text);
+    z-index: 2000;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    display: none;
+    animation: fadeUp 0.3s ease;
+  }
+
   /* ── ANIMATIONS ── */
   @keyframes fadeIn  { from { opacity: 0; }           to { opacity: 1; } }
   @keyframes fadeUp  { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
@@ -528,6 +541,15 @@
 </head>
 <body>
 
+<!-- Custom Alert Notification instead of blocked window.alert() -->
+<div id="custom-alert-box" class="custom-alert">
+  <div style="display:flex; align-items:center; gap:10px;">
+    <span style="font-size:18px;">⚠️</span>
+    <span id="custom-alert-msg" style="font-size:13px; font-weight:500;"></span>
+  </div>
+</div>
+
+<!-- ══════════════ LOGIN SCREEN ══════════════ -->
 <div id="login-screen">
   <div class="login-box">
     <div class="login-logo">NALGONDA <span>KNIGHTS</span></div>
@@ -539,6 +561,7 @@
   </div>
 </div>
 
+<!-- ══════════════ APP SHELL ══════════════ -->
 <div id="app">
   <header>
     <div class="header-left">
@@ -560,6 +583,7 @@
   </div>
 
   <main>
+    <!-- ── DASHBOARD TAB ── -->
     <div id="tab-dashboard" class="tab-panel active">
       <div class="data-banner sample">
         ⚠ &nbsp;Showing sample data — connect Google Sheets to see live data
@@ -607,17 +631,20 @@
         </div>
       </div>
 
+      <!-- UPGRADED S&C HEATMAP GRID -->
       <div class="panel">
-        <div class="panel-title">📈 7-Day Rolling Squad Readiness Matrix <span>Color density based on Daily Score Mean</span></div>
+        <div class="panel-title">📈 7-Day Rolling Squad Readiness Matrix <span>Daily Wellness Score Mean</span></div>
         <div id="heatmap-timeline-dates" class="heatmap-timeline-header"></div>
         <div id="squad-readiness-heatmap"></div>
       </div>
 
       <div class="grid-2">
+        <!-- Wellness Alerts -->
         <div class="panel">
           <div class="panel-title">🚨 Wellness Alerts <span id="alert-count">0 flagged</span></div>
           <div id="wellness-alerts"></div>
         </div>
+        <!-- Submission Tracker -->
         <div class="panel">
           <div class="panel-title">📋 Today's Submissions <span id="sub-summary"></span></div>
           <div class="submission-grid" id="submission-grid"></div>
@@ -625,8 +652,9 @@
       </div>
 
       <div class="grid-2">
+        <!-- Session Load -->
         <div class="panel">
-          <div class="panel-title">⚡ Session Load Scatter Metrics </div>
+          <div class="panel-title">⚡ Session Load Metrics</div>
           <div class="stat-row" style="margin-bottom:16px;">
             <div class="stat-card blue" style="padding:12px 16px;">
               <div class="stat-label">Team Avg</div>
@@ -643,6 +671,7 @@
           <div class="bar-chart" id="load-bar-chart"></div>
         </div>
 
+        <!-- Bowler Acute-To-Chronic Workload Ratio (ACWR) Dashboard -->
         <div class="panel">
           <div class="panel-title">🏏 Fast Bowler Workload <span>Rolling ACWR Injury Risk Matrix</span></div>
           <div id="bowler-workload"></div>
@@ -650,6 +679,7 @@
       </div>
     </div>
 
+    <!-- ── WELLNESS TAB ── -->
     <div id="tab-wellness" class="tab-panel">
       <div class="section-header">
         <div class="section-title">WELLNESS MONITORING</div>
@@ -680,6 +710,7 @@
       </div>
     </div>
 
+    <!-- ── SESSION LOAD TAB ── -->
     <div id="tab-session" class="tab-panel">
       <div class="section-header">
         <div class="section-title">SESSION RPE LOAD</div>
@@ -706,6 +737,7 @@
       </div>
     </div>
 
+    <!-- ── BOWLING LOAD TAB ── -->
     <div id="tab-bowling" class="tab-panel">
       <div class="section-header">
         <div class="section-title">BOWLING LOAD</div>
@@ -732,6 +764,7 @@
       </div>
     </div>
 
+    <!-- ── SQUAD TAB ── -->
     <div id="tab-squad" class="tab-panel">
       <div class="section-header">
         <div class="section-title">SQUAD OVERVIEW</div>
@@ -759,6 +792,7 @@
   </main>
 </div>
 
+<!-- ── PLAYER MODAL OVERLAY ── -->
 <div class="modal-overlay" id="player-modal" onclick="closeModal(event)">
   <div class="modal" id="modal-content"></div>
 </div>
@@ -769,9 +803,8 @@ const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwy68mxn3WfaKN8
 const APPS_SCRIPT_KEY = 'knights-sheet-key'; 
 
 let SESSION_TOKEN = null;
-let radarChartInstance = null; // Memory allocation reference context 
 
-/* ══════════ SAMPLE RUNTIME DATA GENERATOR ══════════ */
+/* ══════════ SAMPLE DATA ENGINE ══════════ */
 const SAMPLE = {
   players: [
     {id:1, name:"Pranay Modukuru", role:"All-Rounder", type:"RMF", age:30, injury:"None", status:"Full Training"},
@@ -790,7 +823,6 @@ const SAMPLE = {
   ]
 };
 
-// Seed 14 Days of processing cycles automatically if sheet is completely dry
 function seedSampleData() {
   const names = ["Pranay Modukuru", "Vamshi Jeggari", "Pratheek Pawar", "Ram Charan"];
   const types = ["Skills", "Conditioning", "Gym / Strength"];
@@ -801,7 +833,6 @@ function seedSampleData() {
     let dateStr = d.toISOString().split('T')[0] + " 08:30:00";
     
     names.forEach(name => {
-      // Seed Wellness Array records
       let isPawar = name === "Pratheek Pawar" && i === 0;
       SAMPLE.wellness.push({
         player: name,
@@ -816,7 +847,6 @@ function seedSampleData() {
         back: 1
       });
 
-      // Seed Session Data
       SAMPLE.sessions.push({
         player: name,
         date: dateStr,
@@ -825,7 +855,6 @@ function seedSampleData() {
         rpe: Math.floor(Math.random() * 4) + 5
       });
 
-      // Seed Bowling Data subset structure elements
       if(name === "Pranay Modukuru" || name === "Vamshi Jeggari" || name === "Ram Charan") {
         SAMPLE.bowling.push({
           player: name,
@@ -840,6 +869,18 @@ function seedSampleData() {
 }
 seedSampleData();
 let DATA = SAMPLE;
+
+function showAlert(msg) {
+  const box = document.getElementById('custom-alert-box');
+  const txt = document.getElementById('custom-alert-msg');
+  if (box && txt) {
+    txt.textContent = msg;
+    box.style.display = 'block';
+    setTimeout(() => {
+      box.style.display = 'none';
+    }, 4000);
+  }
+}
 
 /* ══════════ AUTH PIPELINE ══════════ */
 async function tryLogin() {
@@ -877,20 +918,11 @@ async function tryLogin() {
     btn.style.opacity = '1';
   }
 }
-document.getElementById('pwd-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') tryLogin();
-});
+
 function logout() {
   sessionStorage.removeItem('kn_token');
   SESSION_TOKEN = null;
   location.reload();
-}
-const storedToken = sessionStorage.getItem('kn_token');
-if (storedToken) {
-  SESSION_TOKEN = storedToken;
-  document.getElementById('login-screen').classList.add('hidden');
-  document.getElementById('app').classList.add('visible');
-  setTimeout(init, 0);
 }
 
 function switchTab(id, el) {
@@ -910,17 +942,16 @@ function statusBadge(s) {
 function loadColor(au) { return au > 800 ? 'var(--red)' : au > 600 ? 'var(--yellow)' : 'var(--green)'; }
 function trafficLightLoad(au) { return `<span class="tl ${au > 800 ? 'red' : au > 600 ? 'yellow' : 'green'}"><span class="tl-dot"></span> ${au > 800 ? 'HIGH' : au > 600 ? 'MODERATE' : 'NORMAL'}</span>`; }
 
-// ACWR Color Matrix Scale Rules
 function getAcwrColor(ratio) {
   if (ratio >= 1.5 || ratio < 0.5) return 'var(--red)';
   if (ratio >= 1.3 || ratio <= 0.7) return 'var(--yellow)';
   return 'var(--green)';
 }
 function getAcwrTrafficLight(ratio) {
-  if (ratio >= 1.5) return `<span class="tl red"><span class="tl-dot"></span> DANGER ZONE (SPIKE)</span>`;
-  if (ratio < 0.5) return `<span class="tl red"><span class="tl-dot"></span> UNDERTRAINED</span>`;
-  if (ratio >= 1.3 || ratio <= 0.7) return `<span class="tl yellow"><span class="tl-dot"></span> MODERATE RISK</span>`;
-  return `<span class="tl green"><span class="tl-dot"></span> OPTIMAL (SWEET SPOT)</span>`;
+  if (ratio >= 1.5) return `<span class="tl red"><span class="tl-dot"></span> RISK: SPIKE (DANGER)</span>`;
+  if (ratio < 0.5) return `<span class="tl red"><span class="tl-dot"></span> RISK: UNDERTRAINED</span>`;
+  if (ratio >= 1.3 || ratio <= 0.7) return `<span class="tl yellow"><span class="tl-dot"></span> MODERATE</span>`;
+  return `<span class="tl green"><span class="tl-dot"></span> OPTIMAL</span>`;
 }
 
 /* ══════════ INITIALIZATION PIPELINE ══════════ */
@@ -955,7 +986,7 @@ async function init() {
   renderSquad();
 }
 
-/* ══════════ UPGRADED ENGINE DASHBOARD GENERATOR ══════════ */
+/* ══════════ CORE DASHBOARD RENDERER ══════════ */
 function renderDashboard() {
   const statusCount = {};
   DATA.status.forEach(s => { statusCount[s.status] = (statusCount[s.status]||0)+1; });
@@ -965,7 +996,7 @@ function renderDashboard() {
   document.getElementById('stat-rehab').textContent       = statusCount['Rehab']||0;
   document.getElementById('stat-unavailable').textContent = statusCount['Unavailable']||0;
 
-  // Wellness Internal Flag Parsing Engine
+  // Wellness Flag Processing
   const todayStr = new Date().toISOString().split('T')[0];
   const todayW = DATA.wellness.filter(w => String(w.date).slice(0, 10) === todayStr);
   const alerts = [];
@@ -975,9 +1006,9 @@ function renderDashboard() {
     if (w.sleep <= 2) lows.push('Sleep ' + w.sleep);
     if (w.energy <= 2) lows.push('Energy ' + w.energy);
     if (w.soreness >= 4) lows.push('Soreness ' + w.soreness);
-    if (w.hamstring >= 4) lows.push('Hamstring Tightness ' + w.hamstring);
-    if (w.groin >= 4) lows.push('Groin Pain ' + w.groin);
-    if (w.back >= 4) lows.push('Lower Back Stiffness ' + w.back);
+    if (w.hamstring >= 4) lows.push('Hamstring ' + w.hamstring);
+    if (w.groin >= 4) lows.push('Groin ' + w.groin);
+    if (w.back >= 4) lows.push('Lower Back ' + w.back);
     if (lows.length) alerts.push({player: w.player, lows});
   });
 
@@ -997,7 +1028,7 @@ function renderDashboard() {
     ).join('');
   }
 
-  // Submission Track Rendering Block
+  // Submission Trackers
   const submittedToday = new Set(todayW.map(w => w.player));
   const allNames = DATA.players.map(p => p.name);
   document.getElementById('sub-summary').textContent = submittedToday.size + '/' + allNames.length + ' submitted';
@@ -1008,14 +1039,14 @@ function renderDashboard() {
     </div>`
   ).join('');
 
-  // Team Volume Processing Logic Loops
+  // Team Volume Processing
   const loads = DATA.sessions.map(s => s.duration * s.rpe);
   const avg = loads.length ? Math.round(loads.reduce((a,b)=>a+b,0) / loads.length) : 0;
   const highCount = loads.filter(l => l > 800).length;
   document.getElementById('avg-load').textContent = avg;
   document.getElementById('high-load-count').textContent = highCount;
 
-  // Session Bars Engine Logic Parsing
+  // Session Bar Chart Engine
   const dayMap = {};
   DATA.sessions.forEach(s => {
     const day = String(s.date).slice(0, 10);
@@ -1035,7 +1066,7 @@ function renderDashboard() {
     </div>`;
   }).join('');
 
-  /* ══════════ ADVANCED UPGRADE: ACWR WORKLOAD ENGINE ══════════ */
+  // ── ACWR WORKLOAD ENGINE ──
   const bowlerWorkloadEl = document.getElementById('bowler-workload');
   const paceBowlers = DATA.players.filter(p => p.isBowler || /^(Bowler|All-Rounder)$/i.test(p.role));
 
@@ -1053,10 +1084,8 @@ function renderDashboard() {
       const chronicWeeksDivisor = pEntries.slice(-28).length / 7 || 1;
       const chronicAvgBalls = Math.max(totalChronicBalls / chronicWeeksDivisor, 1);
       
-      // Compute the Acute-to-Chronic Workload Ratio ($ACWR = \frac{\text{Acute}}{\text{Chronic}}$)
+      // ACWR = Acute / Chronic
       const acwr = parseFloat((acuteBalls / chronicAvgBalls).toFixed(2)) || 0.0;
-      
-      // Visual scale configuration: cap the display rendering safely at 2.0 max width constraint maps
       const visualPct = Math.min((acwr / 2.0) * 100, 100);
       const targetColor = getAcwrColor(acwr);
 
@@ -1066,7 +1095,7 @@ function renderDashboard() {
           <div class="bowler-type">${p.type || 'RF'}</div>
         </div>
         <div class="load-bar-wrap" style="flex:1;">
-          <div style="font-size:11px;color:var(--muted);width:55px;">Ratio: <strong>${acwr}</strong></div>
+          <div style="font-size:11px;color:var(--muted);width:55px;">ACWR: <strong>${acwr}</strong></div>
           <div class="load-bar-bg">
             <div class="load-bar-fill" style="width:${visualPct}%;background:${targetColor};"></div>
           </div>
@@ -1074,17 +1103,14 @@ function renderDashboard() {
         <div class="bowler-balls" style="color:${targetColor}; font-weight:bold; padding-right:8px;">${acuteBalls}b</div>
         <div style="width:130px;text-align:right;">${getAcwrTrafficLight(acwr)}</div>
       </div>`;
-    ).join('');
+    }).join('');
   }
 
-  /* ══════════ ADVANCED UPGRADE: SQUAD READINESS HEATMAP GRID ══════════ */
+  // ── 7-DAY ROLLING HEATMAP ──
   const heatmapEl = document.getElementById('squad-readiness-heatmap');
   const dateHeaderEl = document.getElementById('heatmap-timeline-dates');
   
-  // Track unique calendar days
   const uniqueDates = [...new Set(DATA.wellness.map(w => w.date.slice(0,10)))].sort().slice(-7);
-  
-  // Render labels for the past 7 active calendar entries
   dateHeaderEl.innerHTML = uniqueDates.map(d => `<div class="heatmap-date-label">${d.slice(5).replace('-','/')}</div>`).join('');
 
   heatmapEl.innerHTML = DATA.players.map(p => {
@@ -1094,15 +1120,13 @@ function renderDashboard() {
         return `<div class="heatmap-block" style="background:var(--border);color:var(--muted);opacity:0.3;">—</div>`;
       }
       
-      // Systemic mean logic output check
       const dayMean = parseFloat(avgScore(dayRecord));
       
-      // Density matrix hex color configuration
       let bg = 'var(--red)';
-      if (dayMean >= 4.0) bg = '#22c55e';      // Fresh / Optimal Green
-      else if (dayMean >= 3.0) bg = '#86efac'; // Light Light Mild Green 
-      else if (dayMean >= 2.5) bg = '#f59e0b'; // Soft Yellow Warning Guard
-      else if (dayMean >= 1.8) bg = '#f87171'; // Light Soft Crimson Threat Area
+      if (dayMean >= 4.0) bg = '#22c55e';      // Green
+      else if (dayMean >= 3.0) bg = '#86efac'; // Mild Green 
+      else if (dayMean >= 2.5) bg = '#f59e0b'; // Yellow
+      else if (dayMean >= 1.8) bg = '#f87171'; // Mild Red
 
       return `<div class="heatmap-block" style="background:${bg};" title="Score: ${dayMean}/5">${dayMean}</div>`;
     }).join('');
@@ -1114,7 +1138,7 @@ function renderDashboard() {
   }).join('');
 }
 
-/* ══════════ WELLNESS MASTER TABLE DATA ══════════ */
+/* ══════════ CORE DATA TABLE RENDERERS ══════════ */
 function renderWellness() {
   const rows = [...DATA.wellness].sort((a,b) => b.date.localeCompare(a.date));
   document.getElementById('wellness-tbody').innerHTML = rows.map(w => {
@@ -1136,7 +1160,6 @@ function renderWellness() {
   }).join('');
 }
 
-/* ══════════ VOLUMETRIC EXERTION RPE RENDER PANEL ══════════ */
 function renderSession() {
   const rows = [...DATA.sessions].sort((a,b) => b.date.localeCompare(a.date));
   document.getElementById('session-tbody').innerHTML = rows.map(s => {
@@ -1153,7 +1176,6 @@ function renderSession() {
   }).join('');
 }
 
-/* ══════════ PACING BOWLER LOG OUTPUT TABLE ══════════ */
 function renderBowling() {
   const rows = [...DATA.bowling].sort((a,b) => b.date.localeCompare(a.date));
   document.getElementById('bowling-tbody').innerHTML = rows.map(b => {
@@ -1183,21 +1205,102 @@ function renderSquad() {
   ).join('');
 }
 
-/* ══════════ ADVANCED UPGRADE: RADAR ENGINE PLAYER PROFILE MODAL ══════════ */
+/* ══════════ NATIVE CANVAS RADAR CHART GENERATOR ══════════ */
+function drawRadarChart(canvasId, metrics) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const width = canvas.width;
+  const height = canvas.height;
+  const cx = width / 2;
+  const cy = height / 2;
+  const radius = Math.min(width, height) * 0.35;
+
+  ctx.clearRect(0, 0, width, height);
+
+  const labels = ['Sleep', 'Energy', 'Mood', 'Lower Ext', 'Lower Back'];
+  const numPoints = labels.length;
+
+  // Concentric Pentagon Grids
+  for (let level = 1; level <= 5; level++) {
+    const r = (radius / 5) * level;
+    ctx.beginPath();
+    for (let i = 0; i < numPoints; i++) {
+      const angle = (Math.PI * 2 / numPoints) * i - Math.PI / 2;
+      const x = cx + Math.cos(angle) * r;
+      const y = cy + Math.sin(angle) * r;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = '#222936';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  // Draw Axes & Labels
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '10px "DM Sans", sans-serif';
+  
+  for (let i = 0; i < numPoints; i++) {
+    const angle = (Math.PI * 2 / numPoints) * i - Math.PI / 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius);
+    ctx.strokeStyle = '#222936';
+    ctx.stroke();
+
+    const labelX = cx + Math.cos(angle) * (radius + 20);
+    const labelY = cy + Math.sin(angle) * (radius + 12);
+    ctx.fillStyle = '#6b7a90';
+    ctx.fillText(labels[i], labelX, labelY);
+  }
+
+  // Draw Data polygon
+  ctx.beginPath();
+  for (let i = 0; i < numPoints; i++) {
+    const angle = (Math.PI * 2 / numPoints) * i - Math.PI / 2;
+    const val = Math.max(0, Math.min(5, metrics[i]));
+    const r = (radius / 5) * val;
+    const x = cx + Math.cos(angle) * r;
+    const y = cy + Math.sin(angle) * r;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(0, 194, 255, 0.15)';
+  ctx.fill();
+  ctx.strokeStyle = '#00c2ff';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Draw nodes
+  for (let i = 0; i < numPoints; i++) {
+    const angle = (Math.PI * 2 / numPoints) * i - Math.PI / 2;
+    const val = Math.max(0, Math.min(5, metrics[i]));
+    const r = (radius / 5) * val;
+    const x = cx + Math.cos(angle) * r;
+    const y = cy + Math.sin(angle) * r;
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#00c2ff';
+    ctx.fill();
+  }
+}
+
+/* ══════════ PLAYER PROFILE MODAL ══════════ */
 function openModal(playerId) {
   const p = DATA.players.find(x => x.id === playerId);
   if (!p) return;
   const statusInfo = DATA.status.find(s => s.player === p.name);
-  const wHistory = DATA.wellness.filter(w => w.player === p.name).sort((a,b) => b.date.localeCompare(a.date)).slice(0,5);
-  const sHistory = DATA.sessions.filter(s => s.player === p.name).sort((a,b) => b.date.localeCompare(a.date)).slice(0,5);
+  const wHistory = DATA.wellness.filter(w => w.player === p.name).sort((a,b) => b.date.localeCompare(b.date)).slice(0,5);
+  const sHistory = DATA.sessions.filter(s => s.player === p.name).sort((a,b) => b.date.localeCompare(b.date)).slice(0,5);
 
-  // Compute 3-day averages for the radar metrics grid chart layout calculation mapping
   const last3W = wHistory.slice(0, 3);
   const avgSleep = last3W.reduce((acc, c) => acc + c.sleep, 0) / last3W.length || 3;
   const avgEnergy = last3W.reduce((acc, c) => acc + c.energy, 0) / last3W.length || 3;
   const avgMood = last3W.reduce((acc, c) => acc + c.mood, 0) / last3W.length || 3;
-  
-  // Invert tightness scores (5 means tight/bad, so $6 - 5 = 1$ on radar graph baseline context)
   const avgLegs = last3W.reduce((acc, c) => acc + (6 - ((c.hamstring + c.groin)/2)), 0) / last3W.length || 5;
   const avgTrunk = last3W.reduce((acc, c) => acc + (6 - c.back), 0) / last3W.length || 5;
 
@@ -1213,8 +1316,8 @@ function openModal(playerId) {
     <div class="grid-2" style="grid-template-columns: 1.2fr 0.8fr; gap:16px;">
       <div>
         <div class="panel-title" style="margin-bottom:8px;">3-Day Physical Integrity Biometrics</div>
-        <div style="width:100%; max-height:220px; background:var(--surface); border-radius:8px; padding:8px;">
-          <canvas id="playerRadarCanvas" width="260" height="200"></canvas>
+        <div style="width:100%; height:200px; background:var(--surface); border-radius:8px; padding:8px; display:flex; justify-content:center; align-items:center;">
+          <canvas id="playerRadarCanvas" width="280" height="190"></canvas>
         </div>
       </div>
       <div class="modal-grid" style="grid-template-columns:1fr; margin-bottom:0;">
@@ -1232,7 +1335,7 @@ function openModal(playerId) {
     <div style="height:14px;"></div>
     
     ${wHistory.length ? `
-    <div class="panel-title" style="margin-bottom:4px;">Wellness Log Matrix History</div>
+    <div class="panel-title" style="margin-bottom:4px;">Wellness Log History</div>
     <div style="overflow-x:auto;margin-bottom:12px;">
       <table class="mini-table">
         <thead><tr>
@@ -1252,50 +1355,35 @@ function openModal(playerId) {
   
   document.getElementById('player-modal').classList.add('open');
 
-  // Initialize Chart.js Radar Instance Context onto Modal Lifecycle Hooks
+  // Safely invoke radar drawer logic
   setTimeout(() => {
-    const ctx = document.getElementById('playerRadarCanvas').getContext('2d');
-    if (radarChartInstance) radarChartInstance.destroy();
-    
-    radarChartInstance = new Chart(ctx, {
-      type: 'radar',
-      data: {
-        labels: ['Sleep Quality', 'Energy Target', 'Mental Mood', 'Lower Extremity', 'Trunk Status'],
-        datasets: [{
-          label: 'Biometric Rollups',
-          data: [avgSleep, avgEnergy, avgMood, avgLegs, avgTrunk],
-          backgroundColor: 'rgba(0, 194, 255, 0.15)',
-          borderColor: 'rgba(0, 194, 255, 1)',
-          borderWidth: 2,
-          pointBackgroundColor: 'rgba(0, 194, 255, 1)'
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          r: {
-            grid: { color: '#1f2530' },
-            angleLines: { color: '#1f2530' },
-            pointLabels: { color: '#6b7a90', font: { size: 9, family: 'DM Sans' } },
-            ticks: { display: false },
-            min: 0,
-            max: 5
-          }
-        }
-      }
-    });
+    drawRadarChart('playerRadarCanvas', [avgSleep, avgEnergy, avgMood, avgLegs, avgTrunk]);
   }, 50);
 }
 
 function closeModalBtn() {
   document.getElementById('player-modal').classList.remove('open');
-  if (radarChartInstance) { radarChartInstance.destroy(); radarChartInstance = null; }
 }
 function closeModal(e) {
   if (e.target === document.getElementById('player-modal')) closeModalBtn();
 }
+
+/* ══════════ LIFECYCLE INITIALIZER WRAPPER ══════════ */
+window.onload = function() {
+  // Bind standard session check
+  const storedToken = sessionStorage.getItem('kn_token');
+  if (storedToken) {
+    SESSION_TOKEN = storedToken;
+    const loginScreen = document.getElementById('login-screen');
+    const appShell = document.getElementById('app');
+    
+    if (loginScreen && appShell) {
+      loginScreen.classList.add('hidden');
+      appShell.classList.add('visible');
+      init(); // Load dashboard now that elements are rendered safely
+    }
+  }
+};
 </script>
 </body>
 </html>
