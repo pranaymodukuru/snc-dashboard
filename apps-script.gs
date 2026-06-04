@@ -60,11 +60,21 @@ const DEFAULTS = {
 
 /* ───── WEBHOOK RECEIVER : Netlify -> Sheet ───── */
 function doPost(e) {
+  if (!e || !e.postData) return json({ ok: false, error: 'No POST body (run via webhook, not the editor)' });
+
+  // Serialise concurrent webhook retries so they can't double-write
+  const lock = LockService.getScriptLock();
   try {
-    if (!e || !e.postData) return json({ ok: false, error: 'No POST body (run via webhook, not the editor)' });
+    lock.waitLock(15000);
+
     const payload  = JSON.parse(e.postData.contents);
     const formName = payload.form_name || (payload.data && payload.data['form-name']);
     if (!SECTION[formName]) return json({ ok: false, error: 'Unknown form: ' + formName });
+
+    // Idempotency: Netlify re-delivers the same submission id on retry — skip repeats
+    const cache = CacheService.getScriptCache();
+    const subId = payload.id ? 'sub_' + payload.id : null;
+    if (subId && cache.get(subId)) return json({ ok: true, deduped: true });
 
     const data = payload.data || {};
     const date = (payload.created_at || new Date().toISOString()).split('T')[0];
@@ -82,9 +92,12 @@ function doPost(e) {
     });
     sheet.appendRow(row);
 
+    if (subId) cache.put(subId, '1', 21600); // remember this submission for 6h
     return json({ ok: true, tab: formName });
   } catch (err) {
     return json({ ok: false, error: String(err) });
+  } finally {
+    try { lock.releaseLock(); } catch (ignore) {}
   }
 }
 
