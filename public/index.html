@@ -761,6 +761,12 @@
 // Password is validated server-side via /api/auth (Netlify Function)
 // Never stored in this file — set DASHBOARD_PASSWORD in Netlify env vars
 
+// Live data comes from Google Sheets via an Apps Script web app.
+// 1. Deploy apps-script.gs as a Web App (see README → "CONNECT GOOGLE SHEETS")
+// 2. Paste the /exec URL below. Leave blank to keep showing sample data.
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwy68mxn3WfaKN8MIsXp_lCo-LbI7pUKNw4XkxC55NVj_lweDrogr3dlCJIjkI-o7Ontg/exec'; // e.g. 'https://script.google.com/macros/s/AKfy.../exec'
+const APPS_SCRIPT_KEY = 'knights-sheet-key'; // must match SECRET_KEY in apps-script.gs
+
 let SESSION_TOKEN = null;
 
 /* ══════════ SAMPLE DATA ══════════ */
@@ -878,23 +884,24 @@ async function init() {
   document.getElementById('header-date').textContent =
     now.toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short', year:'numeric'});
 
-  // Try live data from Netlify Forms
-  if (SESSION_TOKEN) {
+  // Pull live data from Google Sheets (via Apps Script web app)
+  if (APPS_SCRIPT_URL) {
     try {
-      const res = await fetch('/api/submissions', {
-        headers: { 'Authorization': 'Bearer ' + SESSION_TOKEN }
-      });
+      const sep = APPS_SCRIPT_URL.includes('?') ? '&' : '?';
+      const res = await fetch(APPS_SCRIPT_URL + sep + 'key=' + encodeURIComponent(APPS_SCRIPT_KEY));
       if (res.ok) {
         const live = await res.json();
-        // Merge live submissions with sample player list
-        DATA = { ...SAMPLE, ...live, players: SAMPLE.players };
-        document.querySelectorAll('.data-banner').forEach(b => {
-          b.classList.remove('sample'); b.classList.add('live');
-          b.innerHTML = '✅ &nbsp;Connected to Netlify Forms — live data';
-        });
+        if (!live.error) {
+          // Merge live submissions with the sample player roster
+          DATA = { ...SAMPLE, ...live, players: SAMPLE.players };
+          document.querySelectorAll('.data-banner').forEach(b => {
+            b.classList.remove('sample'); b.classList.add('live');
+            b.innerHTML = '✅ &nbsp;Connected to Google Sheets — live data';
+          });
+        }
       }
     } catch (e) {
-      console.warn('Could not fetch live submissions, using sample data', e);
+      console.warn('Could not fetch live data, using sample data', e);
     }
   }
 

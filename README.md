@@ -12,10 +12,25 @@ knights-v2/
 │   └── checkin.html        ← Player check-in form (open, no login)
 ├── netlify/
 │   └── functions/
-│       ├── auth.js         ← Password validation (server-side)
-│       └── submissions.js  ← Fetches form data for dashboard
+│       └── auth.js         ← Password validation (server-side)
+├── apps-script.gs          ← Google Apps Script (paste into your Sheet)
 ├── netlify.toml            ← Netlify config
 └── README.md               ← This file
+```
+
+**Data flow (live mode):**
+```
+Player submits checkin.html
+        ↓
+Netlify Forms captures it
+        ↓
+Netlify outgoing webhook (built-in)
+        ↓
+Apps Script doPost() → writes a row to Google Sheet
+        ↓
+Apps Script doGet() → JSON
+        ↓
+Coach dashboard fetches it
 ```
 
 **Two URLs when deployed:**
@@ -93,21 +108,75 @@ This is how the password stays OUT of your code.
 |-----|-------|-------|
 | `DASHBOARD_PASSWORD` | `YourSecretPassword` | Coach login password |
 | `TOKEN_SECRET` | `any-random-string-here` | e.g. `knights2026xk9m` — just make it random |
-| `NETLIFY_SITE_ID` | *(see below)* | Your site's ID |
-| `NETLIFY_API_TOKEN` | *(see below)* | Personal access token |
 
-**How to get NETLIFY_SITE_ID:**
-- Netlify → your site → Site configuration → Site ID (copy it)
-- Looks like: `abc12345-1234-1234-1234-abc123456789`
-
-**How to get NETLIFY_API_TOKEN:**
-- Netlify → User settings (top right avatar) → Applications
-- Click **New access token**
-- Name it `knights-dashboard-api`
-- Copy the token immediately (you won't see it again)
+> The dashboard reads its live data straight from Google Sheets (next step),
+> so no Netlify API token is needed.
 
 3. After adding all variables: click **Deploy → Trigger deploy → Deploy site**
    (Variables only take effect on new deploys)
+
+---
+
+## CONNECT GOOGLE SHEETS (live data)
+
+Until you do this, the dashboard shows **sample data**. This connects the
+pipeline so every player check-in lands permanently in a Google Sheet and
+flows to the dashboard. No Zapier, no paid tier — all free.
+
+### A — Create the Sheet
+1. Go to **sheets.google.com** → **Blank spreadsheet**
+2. Rename it `Knights Data` (top-left)
+3. Leave the tabs empty — the script creates `wellness`, `sessions`,
+   `bowling`, and `status` tabs automatically on first submission
+
+### B — Add the Apps Script
+1. In the Sheet: **Extensions → Apps Script**
+2. Delete the placeholder `function myFunction() {}`
+3. Open `apps-script.gs` from this repo, copy ALL of it, paste it in
+4. (Optional) Change `SECRET_KEY` at the top to your own random string.
+   If you do, set the same value as `APPS_SCRIPT_KEY` in `public/index.html`
+5. Click the **Save** (disk) icon
+
+### C — Deploy it as a Web App
+1. Click **Deploy → New deployment**
+2. Click the gear ⚙ next to "Select type" → **Web app**
+3. Settings:
+   - Description: `knights`
+   - Execute as: **Me**
+   - Who has access: **Anyone**  ← required, both Netlify and the dashboard call it
+4. Click **Deploy** → **Authorize access** → pick your Google account →
+   "Advanced" → "Go to … (unsafe)" → **Allow** (this is your own script)
+5. Copy the **Web app URL** — it ends in `/exec`
+
+> If you ever edit the script, you must **Deploy → Manage deployments →
+> Edit (pencil) → Version: New version → Deploy** for changes to go live.
+> The `/exec` URL stays the same.
+
+### D — Point the dashboard at the Sheet
+1. In `public/index.html`, near the top of the `<script>` find:
+   ```javascript
+   const APPS_SCRIPT_URL = '';
+   const APPS_SCRIPT_KEY = 'knights-sheet-key';
+   ```
+2. Paste your `/exec` URL into `APPS_SCRIPT_URL`. Make sure `APPS_SCRIPT_KEY`
+   matches `SECRET_KEY` in `apps-script.gs`
+3. Push to GitHub (`git add . && git commit -m "connect sheets" && git push`)
+
+### E — Forward Netlify submissions to the script
+1. Netlify → your site → **Site configuration → Notifications → Forms**
+   (also reachable via **Forms → Settings & usage → Form notifications**)
+2. **Add notification → Outgoing webhook**
+3. Settings:
+   - Event to listen for: **New form submission**
+   - URL to notify: *paste your `/exec` Web app URL* (no `?key=` needed here)
+   - Form: **Any form** (or pick `daily-wellness`)
+4. **Save**
+
+### F — Test it end-to-end
+1. Open `https://yoursite.netlify.app/checkin`, submit a check-in
+2. Within a second or two, a row appears in the `wellness` tab of your Sheet
+3. Open the dashboard, log in, refresh — the banner turns green
+   (**"Connected to Google Sheets — live data"**) and the entry shows up
 
 ---
 
@@ -183,8 +252,10 @@ Netlify picks it up automatically. Live in ~20 seconds.
 
 When you're ready to add a post-training RPE form, create
 `public/rpe.html` following the same pattern as `checkin.html`.
-The Netlify form name should be `session-rpe` to match what
-`submissions.js` expects.
+The Netlify form name must be `session-rpe` to match the `FORM_TABS`
+map in `apps-script.gs` (the bowling and status forms map to
+`bowling-load` and `player-status` respectively). No script changes
+needed — the matching tab is created automatically on first submission.
 
 ---
 
@@ -198,16 +269,22 @@ The Netlify form name should be `session-rpe` to match what
 → Trigger a fresh deploy after setting env vars
 
 **Dashboard shows sample data even after submissions**
-→ Check Netlify → Forms — did the submission appear there?
-→ Check `NETLIFY_SITE_ID` and `NETLIFY_API_TOKEN` are correct
-→ Open browser console (F12) for error messages
+→ Is `APPS_SCRIPT_URL` filled in (and pushed) in `public/index.html`?
+→ Does `APPS_SCRIPT_KEY` match `SECRET_KEY` in `apps-script.gs`?
+→ Open the `/exec` URL with `?key=YOUR_KEY` in a browser — you should see JSON.
+   If you see "Unauthorized", the keys don't match. If you see a Google login
+   page, the Web app "Who has access" isn't set to **Anyone**
+→ Open browser console (F12) on the dashboard for error messages
+
+**Rows not appearing in the Google Sheet**
+→ Netlify → Forms — did the submission appear there first?
+→ Netlify → Notifications → confirm the outgoing webhook points to the `/exec` URL
+→ Apps Script editor → **Executions** (left sidebar) — look for failed `doPost` runs
+→ If you edited the script, re-deploy a **New version** (see step C note)
 
 **Form submissions not appearing in Netlify**
 → The hidden form detection element in `checkin.html` must be present
 → Try redeploying — Netlify scans for forms at deploy time
-
-**Functions returning 500**
-→ Netlify → Functions → click on `submissions` → view logs for the error
 
 ---
 
