@@ -60,6 +60,7 @@ const DEFAULTS = {
 /* ───── WEBHOOK RECEIVER : Netlify -> Sheet ───── */
 function doPost(e) {
   try {
+    if (!e || !e.postData) return json({ ok: false, error: 'No POST body (run via webhook, not the editor)' });
     const payload  = JSON.parse(e.postData.contents);
     const formName = payload.form_name || (payload.data && payload.data['form-name']);
     if (!SECTION[formName]) return json({ ok: false, error: 'Unknown form: ' + formName });
@@ -88,7 +89,8 @@ function doPost(e) {
 
 /* ───── DATA SOURCE : Sheet -> Dashboard ───── */
 function doGet(e) {
-  if ((e.parameter.key || '') !== SECRET_KEY) {
+  const params = (e && e.parameter) || {};
+  if ((params.key || '') !== SECRET_KEY) {
     return json({ error: 'Unauthorized' });
   }
   const out = { wellness: [], sessions: [], bowling: [], status: [] };
