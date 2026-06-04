@@ -892,8 +892,10 @@ async function init() {
       if (res.ok) {
         const live = await res.json();
         if (!live.error) {
-          // Merge live submissions with the sample player roster
-          DATA = { ...SAMPLE, ...live, players: SAMPLE.players };
+          // Use the live roster from the player-database tab when present,
+          // otherwise fall back to the sample roster.
+          const players = (live.players && live.players.length) ? live.players : SAMPLE.players;
+          DATA = { ...SAMPLE, ...live, players };
           document.querySelectorAll('.data-banner').forEach(b => {
             b.classList.remove('sample'); b.classList.add('live');
             b.innerHTML = '✅ &nbsp;Connected to Google Sheets — live data';

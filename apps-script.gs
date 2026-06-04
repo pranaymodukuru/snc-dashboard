@@ -3,35 +3,54 @@
  * Bridges:  Netlify Forms  ->  Google Sheets  ->  Coach dashboard
  *
  *   doPost : receives Netlify "form submission" outgoing webhooks and
- *            appends one row to the matching Sheet tab.
+ *            appends one row to the tab named after the form.
  *   doGet  : returns all data as JSON for the coach dashboard.
  *
+ * This script is HEADER-DRIVEN: it matches your Sheet columns by header
+ * name (case/space/punctuation-insensitive), so tab headers like
+ * "Timestamp", "Player", "Match Balls" all just work. One tab per form,
+ * named exactly like the Netlify form (e.g. "daily-wellness").
+ *
  * SETUP: see README → "CONNECT GOOGLE SHEETS (live data)".
- * This file is NOT used by Netlify — you copy/paste it into the Apps Script
- * editor attached to your Google Sheet.
  */
 
 // Must match APPS_SCRIPT_KEY in public/index.html.
 // Light protection so random people can't read the doGet endpoint.
 const SECRET_KEY = 'knights-sheet-key';
 
-// Netlify form name  ->  Sheet tab name
-const FORM_TABS = {
+// Netlify form name  ->  dashboard data section
+const SECTION = {
   'daily-wellness': 'wellness',
   'session-rpe':    'sessions',
   'bowling-load':   'bowling',
   'player-status':  'status'
 };
 
-// Column order written to each tab (first column is always the date)
-const COLUMNS = {
-  wellness: ['date','player','sleep','energy','soreness','mood','stress','hamstring','groin','back','notes'],
-  sessions: ['date','player','type','duration','rpe'],
-  bowling:  ['date','player','matchBalls','netBalls','highInt'],
-  status:   ['date','player','status','notes']
+// Used only to auto-create a tab if it doesn't exist yet
+const DEFAULT_HEADERS = {
+  'daily-wellness': ['Timestamp','Player','Sleep','Energy','Soreness','Mood','Stress','Hamstring','Groin','Back','Notes'],
+  'session-rpe':    ['Timestamp','Player','Type','Duration','RPE'],
+  'bowling-load':   ['Timestamp','Player','Match Balls','Net Balls','High Intensity'],
+  'player-status':  ['Timestamp','Player','Status','Notes']
 };
 
-// Default values when a numeric field is missing/blank
+// Header text (normalised)  ->  canonical key the dashboard expects
+const KEYMAP = {
+  timestamp:'date', date:'date', player:'player',
+  sleep:'sleep', energy:'energy', soreness:'soreness', mood:'mood', stress:'stress',
+  hamstring:'hamstring', groin:'groin', back:'back', notes:'notes',
+  type:'type', duration:'duration', rpe:'rpe',
+  matchballs:'matchBalls', netballs:'netBalls',
+  highintensity:'highInt', highint:'highInt',
+  status:'status',
+  // player-database (roster) columns
+  id:'id', name:'name', role:'role', age:'age', injury:'injury'
+};
+
+// Tab holding the squad roster
+const ROSTER_TAB = 'player-database';
+
+// Default values when a numeric field is missing/blank (keyed by canonical key)
 const DEFAULTS = {
   sleep:3, energy:3, soreness:3, mood:3, stress:3,
   hamstring:1, groin:1, back:1,
@@ -43,19 +62,25 @@ function doPost(e) {
   try {
     const payload  = JSON.parse(e.postData.contents);
     const formName = payload.form_name || (payload.data && payload.data['form-name']);
-    const tab      = FORM_TABS[formName];
-    if (!tab) return json({ ok: false, error: 'Unknown form: ' + formName });
+    if (!SECTION[formName]) return json({ ok: false, error: 'Unknown form: ' + formName });
 
     const data = payload.data || {};
     const date = (payload.created_at || new Date().toISOString()).split('T')[0];
 
-    const sheet = getOrCreateTab(tab);
-    const row = COLUMNS[tab].map(col =>
-      col === 'date' ? date : (data[col] !== undefined ? data[col] : '')
-    );
+    // Index incoming values by canonical key
+    const incoming = {};
+    Object.keys(data).forEach(k => { incoming[canon(k)] = data[k]; });
+
+    const sheet   = getOrCreateTab(formName);
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const row = headers.map(h => {
+      const c = canon(h);
+      if (c === 'date') return date;
+      return incoming[c] !== undefined ? incoming[c] : '';
+    });
     sheet.appendRow(row);
 
-    return json({ ok: true, tab: tab });
+    return json({ ok: true, tab: formName });
   } catch (err) {
     return json({ ok: false, error: String(err) });
   }
@@ -66,49 +91,78 @@ function doGet(e) {
   if ((e.parameter.key || '') !== SECRET_KEY) {
     return json({ error: 'Unauthorized' });
   }
-  return json({
-    wellness: readTab('wellness'),
-    sessions: readTab('sessions'),
-    bowling:  readTab('bowling'),
-    status:   latestPerPlayer(readTab('status'))
+  const out = { wellness: [], sessions: [], bowling: [], status: [] };
+  Object.keys(SECTION).forEach(form => {
+    const rows = readTab(form);
+    out[SECTION[form]] = (SECTION[form] === 'status') ? latestPerPlayer(rows) : rows;
   });
+  out.players = readRoster(); // [] if the roster tab is empty
+  return json(out);
 }
 
 /* ───── HELPERS ───── */
-function getOrCreateTab(name) {
+// Normalise a header/field name to a canonical dashboard key
+function canon(s) {
+  const n = String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+  return KEYMAP[n] || n;
+}
+
+function getOrCreateTab(formName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(name);
+  let sheet = ss.getSheetByName(formName);
   if (!sheet) {
-    sheet = ss.insertSheet(name);
-    sheet.appendRow(COLUMNS[name]); // header row
+    sheet = ss.insertSheet(formName);
+    sheet.appendRow(DEFAULT_HEADERS[formName] || ['Timestamp','Player']);
   }
   return sheet;
 }
 
-function readTab(name) {
+function readTab(formName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(name);
+  const sheet = ss.getSheetByName(formName);
   if (!sheet || sheet.getLastRow() < 2) return [];
 
   const values = sheet.getDataRange().getValues();
-  const header = values.shift();
+  const header = values.shift().map(canon);
   const tz = Session.getScriptTimeZone();
 
   return values.map(r => {
     const obj = {};
-    header.forEach((h, i) => {
+    header.forEach((key, i) => {
       let v = r[i];
-      if (h === 'date') {
-        v = (v instanceof Date) ? Utilities.formatDate(v, tz, 'yyyy-MM-dd') : String(v);
-      } else if (h in DEFAULTS) {
-        v = (v === '' || v === null) ? DEFAULTS[h] : parseInt(v, 10);
+      if (key === 'date') {
+        v = (v instanceof Date) ? Utilities.formatDate(v, tz, 'yyyy-MM-dd') : String(v).split('T')[0];
+      } else if (key in DEFAULTS) {
+        v = (v === '' || v === null) ? DEFAULTS[key] : parseInt(v, 10);
       } else {
         v = (v === null) ? '' : String(v);
       }
-      obj[h] = v;
+      obj[key] = v;
     });
     return obj;
   });
+}
+
+// Read the squad roster from the player-database tab.
+// id and age are coerced to numbers (the dashboard matches on numeric id).
+function readRoster() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(ROSTER_TAB);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+
+  const values = sheet.getDataRange().getValues();
+  const header = values.shift().map(canon);
+
+  return values
+    .map((r, idx) => {
+      const obj = {};
+      header.forEach((key, i) => { obj[key] = (r[i] === null) ? '' : r[i]; });
+      obj.id   = (obj.id !== '' && obj.id != null) ? parseInt(obj.id, 10) : (idx + 1);
+      obj.age  = (obj.age !== '' && obj.age != null) ? parseInt(obj.age, 10) : '';
+      obj.name = String(obj.name || '').trim();
+      return obj;
+    })
+    .filter(p => p.name); // skip blank rows
 }
 
 // Status tab keeps history; dashboard only wants the latest row per player
