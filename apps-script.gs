@@ -44,7 +44,8 @@ const KEYMAP = {
   highintensity:'highInt', highint:'highInt',
   status:'status',
   // player-database (roster) columns
-  id:'id', name:'name', role:'role', age:'age', injury:'injury'
+  id:'id', name:'name', role:'role', age:'age', injury:'injury',
+  bowler:'isBowler', isbowler:'isBowler'
 };
 
 // Tab holding the squad roster
@@ -154,6 +155,7 @@ function readRoster() {
 
   const values = sheet.getDataRange().getValues();
   const header = values.shift().map(canon);
+  const hasBowlerCol = header.indexOf('isBowler') !== -1;
 
   return values
     .map((r, idx) => {
@@ -162,6 +164,13 @@ function readRoster() {
       obj.id   = (obj.id !== '' && obj.id != null) ? parseInt(obj.id, 10) : (idx + 1);
       obj.age  = (obj.age !== '' && obj.age != null) ? parseInt(obj.age, 10) : '';
       obj.name = String(obj.name || '').trim();
+      // Bowler flag: explicit "Bowler" column if present, else infer from role
+      if (hasBowlerCol) {
+        obj.isBowler = /^(true|1|yes|y)$/i.test(String(obj.isBowler).trim());
+      } else {
+        const role = String(obj.role || '').toLowerCase();
+        obj.isBowler = role.indexOf('bowler') !== -1 || role.indexOf('rounder') !== -1;
+      }
       return obj;
     })
     .filter(p => p.name); // skip blank rows

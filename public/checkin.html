@@ -393,7 +393,13 @@
 </div>
 
 <script>
-const PLAYERS = [
+// Roster comes from the Google Sheet (player-database tab) via Apps Script.
+// Must match APPS_SCRIPT_URL / APPS_SCRIPT_KEY in index.html.
+const APPS_SCRIPT_URL = ''; // e.g. 'https://script.google.com/macros/s/AKfy.../exec'
+const APPS_SCRIPT_KEY = 'knights-sheet-key';
+
+// Fallback roster used only if the Sheet can't be reached
+let PLAYERS = [
   {name:"Vamshi Jeggari",    role:"All-Rounder", isBowler: true},
   {name:"Pranay Modukuru",   role:"Batter",      isBowler: false}
 ];
@@ -406,12 +412,32 @@ document.getElementById('top-date').textContent =
   new Date().toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'});
 
 // Build player grid
-document.getElementById('player-grid').innerHTML = PLAYERS.map(p =>
-  `<button class="player-btn" onclick="selectPlayer('${p.name}')">
-    <div class="pname">${p.name}</div>
-    <div class="prole">${p.role}</div>
-  </button>`
-).join('');
+function renderPlayerGrid() {
+  document.getElementById('player-grid').innerHTML = PLAYERS.map(p =>
+    `<button class="player-btn" onclick="selectPlayer('${p.name.replace(/'/g, "\\'")}')">
+      <div class="pname">${p.name}</div>
+      <div class="prole">${p.role}</div>
+    </button>`
+  ).join('');
+}
+renderPlayerGrid();
+
+// Pull the live roster from the Sheet (falls back to the list above on failure)
+(async function loadRoster() {
+  if (!APPS_SCRIPT_URL) return;
+  try {
+    const sep = APPS_SCRIPT_URL.includes('?') ? '&' : '?';
+    const res = await fetch(APPS_SCRIPT_URL + sep + 'key=' + encodeURIComponent(APPS_SCRIPT_KEY));
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.players && data.players.length) {
+      PLAYERS = data.players.map(p => ({ name: p.name, role: p.role, isBowler: !!p.isBowler }));
+      renderPlayerGrid();
+    }
+  } catch (e) {
+    console.warn('Could not load roster from Sheet, using fallback list', e);
+  }
+})();
 
 function selectPlayer(name) {
   selectedPlayer = PLAYERS.find(p => p.name === name);
