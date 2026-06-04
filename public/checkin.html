@@ -500,12 +500,13 @@ function updateSlider(key, val) {
 
 function goBack() { showScreen('screen-player'); }
 
-/* ══════════ NETLIFY TRANSACTION PAYLOAD SUBMIT ══════════ */
+/* ══════════ NETLIFY + GOOGLE SHEETS DUAL SUBMIT ══════════ */
 async function submitWellness() {
   const btn = document.getElementById('submit-btn');
   btn.disabled = true;
   btn.textContent = 'ROUTING DATA...';
 
+  // 1. Standard Payload for Netlify Forms (keeps your dashboard records active)
   const formData = new FormData();
   formData.append('form-name', 'daily-wellness');
   formData.append('player',    selectedPlayer.name);
@@ -520,9 +521,37 @@ async function submitWellness() {
   formData.append('notes',     document.getElementById('notes-input').value);
   formData.append('bot-field', '');
 
+  // 2. JSON Payload formatted exactly how your Apps Script expects it
+  const appsScriptPayload = {
+    form_name: 'daily-wellness',
+    data: {
+      player: selectedPlayer.name,
+      sleep: scores.sleep,
+      energy: scores.energy,
+      soreness: scores.soreness,
+      mood: scores.mood,
+      stress: scores.stress,
+      hamstring: scores.hamstring,
+      groin: scores.groin,
+      back: scores.back,
+      notes: document.getElementById('notes-input').value
+    }
+  };
+
   try {
+    // Submit natively to Netlify Forms
     const res = await fetch('/', { method: 'POST', body: formData });
-    if (!res.ok) throw new Error('Transaction delivery failed');
+    if (!res.ok) throw new Error('Netlify transaction failed');
+
+    // Route directly to Google Apps Script, completely bypassing Netlify's failing webhook.
+    // Using mode: 'no-cors' allows us to POST cross-origin without preflight rejections.
+    fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(appsScriptPayload)
+    });
+
     showSuccess();
   } catch (err) {
     alert('Ecosystem handshake drop. Confirm device connection and resubmit form.');
