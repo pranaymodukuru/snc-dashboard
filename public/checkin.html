@@ -74,6 +74,24 @@
   .player-btn .pname { font-size: 14px; font-weight: 500; }
   .player-btn .prole { font-size: 11px; color: var(--muted); margin-top: 2px; }
 
+  .grid-message {
+    grid-column: 1 / -1;
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
+    padding: 40px 16px;
+    line-height: 1.6;
+  }
+  .retry-btn {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+    padding: 0;
+  }
+
   /* ── FORM ── */
   .form-header {
     display: flex; align-items: center; gap: 12px;
@@ -398,11 +416,8 @@
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwy68mxn3WfaKN8MIsXp_lCo-LbI7pUKNw4XkxC55NVj_lweDrogr3dlCJIjkI-o7Ontg/exec';
 const APPS_SCRIPT_KEY = 'knights-sheet-key';
 
-// Fallback roster used only if the Sheet can't be reached
-let PLAYERS = [
-  {name:"Vamshi Jeggari",    role:"All-Rounder", isBowler: true},
-  {name:"Pranay Modukuru",   role:"Batter",      isBowler: false}
-];
+// Roster is loaded live from the Sheet; no hardcoded fallback.
+let PLAYERS = [];
 
 let selectedPlayer = null;
 const scores = { sleep:3, energy:3, soreness:3, mood:3, stress:3, hamstring:1, groin:1, back:1 };
@@ -420,24 +435,39 @@ function renderPlayerGrid() {
     </button>`
   ).join('');
 }
-renderPlayerGrid();
 
-// Pull the live roster from the Sheet (falls back to the list above on failure)
-(async function loadRoster() {
-  if (!APPS_SCRIPT_URL) return;
+// Show a status message in place of the grid (loading / error states)
+function renderGridMessage(html) {
+  document.getElementById('player-grid').innerHTML =
+    `<div class="grid-message">${html}</div>`;
+}
+
+// Pull the live roster from the Sheet
+async function loadRoster() {
+  renderGridMessage('Loading players, please wait…');
+  if (!APPS_SCRIPT_URL) {
+    renderGridMessage('Roster unavailable — no data source configured.');
+    return;
+  }
   try {
     const sep = APPS_SCRIPT_URL.includes('?') ? '&' : '?';
     const res = await fetch(APPS_SCRIPT_URL + sep + 'key=' + encodeURIComponent(APPS_SCRIPT_KEY));
-    if (!res.ok) return;
+    if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     if (data.players && data.players.length) {
       PLAYERS = data.players.map(p => ({ name: p.name, role: p.role, isBowler: !!p.isBowler }));
       renderPlayerGrid();
+    } else {
+      renderGridMessage('No players found in the roster.');
     }
   } catch (e) {
-    console.warn('Could not load roster from Sheet, using fallback list', e);
+    console.warn('Could not load roster from Sheet', e);
+    renderGridMessage(
+      `Couldn't load players. Check your connection and <button type="button" class="retry-btn" onclick="loadRoster()">try again</button>.`
+    );
   }
-})();
+}
+loadRoster();
 
 function selectPlayer(name) {
   selectedPlayer = PLAYERS.find(p => p.name === name);

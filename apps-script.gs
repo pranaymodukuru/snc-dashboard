@@ -1,21 +1,8 @@
 /**
  * Nalgonda Knights — Google Apps Script web app
  * Bridges:  Netlify Forms  ->  Google Sheets  ->  Coach dashboard
- *
- *   doPost : receives Netlify "form submission" outgoing webhooks and
- *            appends one row to the tab named after the form.
- *   doGet  : returns all data as JSON for the coach dashboard.
- *
- * This script is HEADER-DRIVEN: it matches your Sheet columns by header
- * name (case/space/punctuation-insensitive), so tab headers like
- * "Timestamp", "Player", "Match Balls" all just work. One tab per form,
- * named exactly like the Netlify form (e.g. "daily-wellness").
- *
- * SETUP: see README → "CONNECT GOOGLE SHEETS (live data)".
  */
 
-// Must match APPS_SCRIPT_KEY in public/index.html.
-// Light protection so random people can't read the doGet endpoint.
 const SECRET_KEY = 'knights-sheet-key';
 
 // Netlify form name  ->  dashboard data section
@@ -43,16 +30,13 @@ const KEYMAP = {
   matchballs:'matchBalls', netballs:'netBalls',
   highintensity:'highInt', highint:'highInt',
   status:'status',
-  // player-database (roster) columns
   id:'id', playerid:'id', name:'name', role:'role', age:'age',
   injury:'injury', injuryhistory:'injury',
   bowler:'isBowler', isbowler:'isBowler'
 };
 
-// Tab holding the squad roster
 const ROSTER_TAB = 'player-database';
 
-// Default values when a numeric field is missing/blank (keyed by canonical key)
 const DEFAULTS = {
   sleep:3, energy:3, soreness:3, mood:3, stress:3,
   hamstring:1, groin:1, back:1,
@@ -61,43 +45,64 @@ const DEFAULTS = {
 
 /* ───── WEBHOOK RECEIVER : Netlify -> Sheet ───── */
 function doPost(e) {
-  if (!e || !e.postData) return json({ ok: false, error: 'No POST body (run via webhook, not the editor)' });
+  // Always verify endpoint hits in Extensions > Apps Script Dashboard > Executions
+  console.log("Webhook payload received raw:", JSON.stringify(e));
 
-  // Serialise concurrent webhook retries so they can't double-write
+  if (!e || !e.postData || !e.postData.contents) {
+    return json({ ok: false, error: 'No POST body found' });
+  }
+
   const lock = LockService.getScriptLock();
   try {
+    // Wait up to 15 seconds for concurrent writes to clear
     lock.waitLock(15000);
 
     const payload  = JSON.parse(e.postData.contents);
     const formName = payload.form_name || (payload.data && payload.data['form-name']);
-    if (!SECTION[formName]) return json({ ok: false, error: 'Unknown form: ' + formName });
+    
+    if (!formName || !SECTION[formName]) {
+      console.error("Unknown or missing form name execution dropped:", formName);
+      return json({ ok: false, error: 'Unknown form: ' + formName });
+    }
 
-    // Idempotency: Netlify re-delivers the same submission id on retry — skip repeats
+    // Idempotency check via transaction cache
     const cache = CacheService.getScriptCache();
     const subId = payload.id ? 'sub_' + payload.id : null;
-    if (subId && cache.get(subId)) return json({ ok: true, deduped: true });
+    if (subId && cache.get(subId)) {
+      console.log("Duplicate payload handled gracefully via cache ID:", subId);
+      return json({ ok: true, deduped: true });
+    }
 
     const data = payload.data || {};
     const when = payload.created_at ? new Date(payload.created_at) : new Date();
     const date = Utilities.formatDate(when, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
 
-    // Index incoming values by canonical key
+    // Index incoming elements securely
     const incoming = {};
-    Object.keys(data).forEach(k => { incoming[canon(k)] = data[k]; });
+    Object.keys(data).forEach(k => { 
+      incoming[canon(k)] = data[k]; 
+    });
 
     const sheet   = getOrCreateTab(formName);
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    
     const row = headers.map(h => {
       const c = canon(h);
       if (c === 'date') return date;
       return incoming[c] !== undefined ? incoming[c] : '';
     });
+    
     sheet.appendRow(row);
 
-    if (subId) cache.put(subId, '1', 21600); // remember this submission for 6h
+    if (subId) {
+      cache.put(subId, '1', 21600); // 6 hours safety lock window
+    }
+    
     return json({ ok: true, tab: formName });
+
   } catch (err) {
-    return json({ ok: false, error: String(err) });
+    console.error("Critical execution breakdown within doPost:", err.toString());
+    return json({ ok: false, error: err.toString() });
   } finally {
     try { lock.releaseLock(); } catch (ignore) {}
   }
@@ -114,12 +119,11 @@ function doGet(e) {
     const rows = readTab(form);
     out[SECTION[form]] = (SECTION[form] === 'status') ? latestPerPlayer(rows) : rows;
   });
-  out.players = readRoster(); // [] if the roster tab is empty
+  out.players = readRoster(); 
   return json(out);
 }
 
 /* ───── HELPERS ───── */
-// Normalise a header/field name to a canonical dashboard key
 function canon(s) {
   const n = String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
   return KEYMAP[n] || n;
@@ -161,8 +165,6 @@ function readTab(formName) {
   });
 }
 
-// Read the squad roster from the player-database tab.
-// id and age are coerced to numbers (the dashboard matches on numeric id).
 function readRoster() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(ROSTER_TAB);
@@ -179,7 +181,6 @@ function readRoster() {
       obj.id   = (obj.id !== '' && obj.id != null) ? parseInt(obj.id, 10) : (idx + 1);
       obj.age  = (obj.age !== '' && obj.age != null) ? parseInt(obj.age, 10) : '';
       obj.name = String(obj.name || '').trim();
-      // Bowler flag: explicit "Bowler" column if present, else infer from role
       if (hasBowlerCol) {
         obj.isBowler = /^(true|1|yes|y)$/i.test(String(obj.isBowler).trim());
       } else {
@@ -188,10 +189,9 @@ function readRoster() {
       }
       return obj;
     })
-    .filter(p => p.name); // skip blank rows
+    .filter(p => p.name);
 }
 
-// Status tab keeps history; dashboard only wants the latest row per player
 function latestPerPlayer(rows) {
   const map = {};
   rows.forEach(r => {
