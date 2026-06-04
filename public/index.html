@@ -926,7 +926,7 @@ function renderDashboard() {
 
   // Wellness Alerts (score ≤ 2 on any metric)
   const today = new Date().toISOString().split('T')[0];
-  const todayW = DATA.wellness.filter(w => w.date === today);
+  const todayW = DATA.wellness.filter(w => String(w.date).slice(0, 10) === today);
   const alerts = [];
   todayW.forEach(w => {
     const lows = [];
@@ -976,8 +976,9 @@ function renderDashboard() {
   // Bar chart by day
   const dayMap = {};
   DATA.sessions.forEach(s => {
-    if (!dayMap[s.date]) dayMap[s.date] = [];
-    dayMap[s.date].push(s.duration * s.rpe);
+    const day = String(s.date).slice(0, 10);
+    if (!dayMap[day]) dayMap[day] = [];
+    dayMap[day].push(s.duration * s.rpe);
   });
   const days = Object.keys(dayMap).sort().slice(-7);
   const maxAvg = Math.max(...days.map(d => {

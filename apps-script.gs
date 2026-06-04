@@ -44,7 +44,8 @@ const KEYMAP = {
   highintensity:'highInt', highint:'highInt',
   status:'status',
   // player-database (roster) columns
-  id:'id', name:'name', role:'role', age:'age', injury:'injury',
+  id:'id', playerid:'id', name:'name', role:'role', age:'age',
+  injury:'injury', injuryhistory:'injury',
   bowler:'isBowler', isbowler:'isBowler'
 };
 
@@ -77,7 +78,8 @@ function doPost(e) {
     if (subId && cache.get(subId)) return json({ ok: true, deduped: true });
 
     const data = payload.data || {};
-    const date = (payload.created_at || new Date().toISOString()).split('T')[0];
+    const when = payload.created_at ? new Date(payload.created_at) : new Date();
+    const date = Utilities.formatDate(when, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
 
     // Index incoming values by canonical key
     const incoming = {};
@@ -147,7 +149,7 @@ function readTab(formName) {
     header.forEach((key, i) => {
       let v = r[i];
       if (key === 'date') {
-        v = (v instanceof Date) ? Utilities.formatDate(v, tz, 'yyyy-MM-dd') : String(v).split('T')[0];
+        v = (v instanceof Date) ? Utilities.formatDate(v, tz, 'yyyy-MM-dd HH:mm:ss') : String(v);
       } else if (key in DEFAULTS) {
         v = (v === '' || v === null) ? DEFAULTS[key] : parseInt(v, 10);
       } else {
