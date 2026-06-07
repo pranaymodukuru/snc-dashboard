@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -15,7 +18,7 @@ st.set_page_config(
 )
 
 DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "knights2024")
-DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
+DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Custom CSS ───────────────────────────────────────────────────────────────
@@ -23,6 +26,9 @@ st.markdown("""
 <style>
   [data-testid="stSidebar"] { display: none; }
   [data-testid="collapsedControl"] { display: none; }
+  [data-testid="stToolbar"] { display: none; }
+  #MainMenu { display: none; }
+  header[data-testid="stHeader"] { display: none; }
   .block-container { padding-top: 1.5rem; }
   .metric-card {
     background: #161a22; border: 1px solid #1f2530; border-radius: 10px;
@@ -115,7 +121,17 @@ def load_wellness() -> pd.DataFrame:
 def load_roster() -> pd.DataFrame:
     p = DATA_DIR / "roster.csv"
     ensure_csv(p, ROSTER_COLS)
-    return pd.read_csv(p)
+    df = pd.read_csv(p, dtype={
+        "name": "str", "role": "str", "type": "str",
+        "injury_history": "str", "current_status": "str", "status_notes": "str",
+    })
+    str_cols = ["name", "role", "type", "injury_history", "current_status", "status_notes"]
+    df = df.assign(**{
+        col: df[col].fillna("") for col in str_cols if col in df.columns
+    })
+    if "is_fast_bowler" in df.columns:
+        df = df.assign(is_fast_bowler=df["is_fast_bowler"].fillna(False).infer_objects(copy=False).astype(bool))
+    return df
 
 @st.cache_data(ttl=30)
 def load_sessions() -> pd.DataFrame:
@@ -161,13 +177,6 @@ with c_logout:
         st.rerun()
 
 st.markdown("<hr style='border-color:#1f2530; margin: 8px 0 16px;'>", unsafe_allow_html=True)
-
-# ── Load data ────────────────────────────────────────────────────────────────
-wellness = load_wellness()
-roster   = load_roster()
-sessions = load_sessions()
-bowling  = load_bowling()
-today    = date.today()
 
 # ── Tabs ─────────────────────────────────────────────────────────────────────
 tab_overview, tab_wellness, tab_sessions, tab_bowling, tab_squad, tab_admin = st.tabs([
@@ -543,12 +552,15 @@ with tab_squad:
 # ════════════════════════════════════════════════════════════════════════════
 # TAB 6 — ADMIN
 # ════════════════════════════════════════════════════════════════════════════
-with tab_admin:
+@st.fragment
+def render_admin_tab():
     st.subheader("Roster Management")
     st.caption("Edit directly in the table. Add rows with the + button. Save when done.")
 
+    current_roster = load_roster()
+
     edited = st.data_editor(
-        roster,
+        current_roster,
         num_rows="dynamic",
         use_container_width=True,
         column_config={
@@ -570,15 +582,19 @@ with tab_admin:
     with c_save:
         if st.button("Save Roster", type="primary", use_container_width=True):
             edited.to_csv(DATA_DIR / "roster.csv", index=False)
-            st.success("Roster saved!")
             load_roster.clear()
             st.rerun()
 
     st.divider()
     st.subheader("Export Data")
     c1, c2, c3, c4 = st.columns(4)
-    dfs = {"wellness": wellness, "sessions": sessions, "bowling": bowling, "roster": roster}
-    for col, (name, df) in zip([c1, c2, c3, c4], dfs.items()):
+    export_dfs = {
+        "wellness": load_wellness(),
+        "sessions": load_sessions(),
+        "bowling":  load_bowling(),
+        "roster":   current_roster,
+    }
+    for col, (name, df) in zip([c1, c2, c3, c4], export_dfs.items()):
         with col:
             if not df.empty:
                 st.download_button(
@@ -590,3 +606,6 @@ with tab_admin:
                 )
             else:
                 st.button(f"Export {name}.csv", disabled=True, use_container_width=True)
+
+with tab_admin:
+    render_admin_tab()

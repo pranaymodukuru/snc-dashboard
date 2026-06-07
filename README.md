@@ -1,297 +1,221 @@
-# Nalgonda Knights — Setup Guide
-## Full deployment: GitHub → Netlify
+# Nalgonda Knights — S&C Dashboard
+
+A cricket team strength & conditioning dashboard built with FastAPI + Streamlit, deployed on Railway.
 
 ---
 
-## FOLDER STRUCTURE
+## Architecture
 
 ```
-knights-v2/
-├── public/
-│   ├── index.html          ← Coach dashboard (password protected)
-│   └── checkin.html        ← Player check-in form (open, no login)
-├── netlify/
-│   └── functions/
-│       └── auth.js         ← Password validation (server-side)
-├── apps-script.gs          ← Google Apps Script (paste into your Sheet)
-├── netlify.toml            ← Netlify config
-└── README.md               ← This file
+api/                     FastAPI — serves player check-in form, saves submissions to CSV
+  main.py
+  templates/
+    checkin.html         Player check-in (open, no login required)
+  requirements.txt
+  Dockerfile
+
+dashboard/               Streamlit — coach dashboard (password protected)
+  app.py
+  .streamlit/
+    config.toml
+  requirements.txt
+  Dockerfile
+
+data/                    CSV files (local dev only — Railway uses a Volume)
+  wellness.csv
+  sessions.csv
+  bowling.csv
+  roster.csv
+
+.env.example             Copy to .env for local dev
 ```
 
-**Data flow (live mode):**
+**Data flow:**
 ```
-Player submits checkin.html
+Player opens /checkin (FastAPI)
         ↓
-Netlify Forms captures it
+Selects name → fills in sliders → submits
         ↓
-Netlify outgoing webhook (built-in)
+POST /submit/wellness → appended to /data/wellness.csv
         ↓
-Apps Script doPost() → writes a row to Google Sheet
+Coach opens Streamlit dashboard (password protected)
         ↓
-Apps Script doGet() → JSON
-        ↓
-Coach dashboard fetches it
+Reads CSVs from shared /data volume → renders charts
 ```
 
-**Two URLs when deployed:**
-- `https://yoursite.netlify.app/` → Coach dashboard (password protected)
-- `https://yoursite.netlify.app/checkin` → Player check-in (open, send this to players)
+**Two URLs in production:**
+- `https://your-api.railway.app/checkin` → player check-in (send this to players)
+- `https://your-dashboard.railway.app` → coach dashboard (password protected)
 
 ---
 
-## STEP 1 — Create a GitHub repository
+## Local Development
 
-1. Go to **github.com** and sign in (create a free account if needed)
-2. Click the **+** icon (top right) → **New repository**
-3. Name: `knights-dashboard`
-4. Visibility: **Private** ← important
-5. Do NOT tick "Add a README" (we already have one)
-6. Click **Create repository**
+### Prerequisites
 
----
+- Python 3.12+
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
+- Two terminal windows (one for each service)
 
-## STEP 2 — Push the code to GitHub
+### Setup
 
-On your computer, open Terminal (Mac/Linux) or Command Prompt (Windows).
-
-Navigate to the `knights-v2` folder:
 ```bash
-cd path/to/knights-v2
+# Clone the repo
+git clone https://github.com/YOUR_USERNAME/snc-dashboard.git
+cd snc-dashboard
+
+# Create venv and install all dependencies (run once)
+uv sync
+
+# Copy env file
+cp .env.example .env
+# Edit .env and set DASHBOARD_PASSWORD to whatever you want
 ```
 
-Then run these commands one by one:
+### Run the API (check-in form)
+
 ```bash
-git init
+uv run uvicorn api.main:app --reload --port 8000
+```
+
+Check-in form available at: http://localhost:8000/checkin
+
+### Run the Dashboard
+
+```bash
+uv run streamlit run dashboard/app.py
+```
+
+Dashboard available at: http://localhost:8501
+
+> The `DATA_DIR=../data` prefix tells both services to share the same `data/` folder at the repo root.
+> The folder is created automatically on first run.
+
+### First run
+
+1. Open the dashboard at http://localhost:8501
+2. Log in with the password you set in `.env`
+3. Go to the **Admin** tab → add your players → click **Save Roster**
+4. Open the check-in form at http://localhost:8000/checkin — your players will now appear
+
+---
+
+## Deploying to Railway
+
+Railway runs both services as separate containers that share a persistent Volume for CSV storage.
+
+### Step 1 — Push code to GitHub
+
+```bash
 git add .
 git commit -m "initial commit"
-git branch -M main
-git remote add origin https://github.com/YOUR_GITHUB_USERNAME/knights-dashboard.git
+git remote add origin https://github.com/YOUR_USERNAME/snc-dashboard.git
 git push -u origin main
 ```
 
-Replace `YOUR_GITHUB_USERNAME` with your actual GitHub username.
+### Step 2 — Create a Railway project
 
-When it asks for credentials, use your GitHub username and a
-**Personal Access Token** (not your password):
-- GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)
-- Generate new token → tick `repo` scope → copy the token
-- Use this as the password when git prompts you
+1. Go to [railway.app](https://railway.app) and sign in with GitHub
+2. Click **New Project → Deploy from GitHub repo**
+3. Select your `snc-dashboard` repository
 
----
+### Step 3 — Configure the API service
 
-## STEP 3 — Create a Netlify account and connect GitHub
+Railway will create one service by default. Configure it as the API:
 
-1. Go to **netlify.com** → Sign up with GitHub (easiest)
-2. Click **Add new site → Import an existing project**
-3. Click **GitHub**
-4. Authorise Netlify to access your GitHub
-5. Find and select **knights-dashboard**
-6. Build settings:
-   - Base directory: *(leave blank)*
-   - Build command: *(leave blank)*
-   - Publish directory: `public`
-7. Click **Deploy site**
+1. Click on the service → **Settings**
+2. Leave **Root Directory** blank (build context is the repo root)
+3. Set **Dockerfile Path** to `api/Dockerfile`
+4. Under **Networking → Expose port**: set to `8000`
+5. Click **Generate Domain** to get a public URL (this is your `/checkin` URL)
 
-Netlify will deploy in about 30 seconds and give you a URL like:
-`https://amazing-knight-abc123.netlify.app`
+### Step 4 — Add the Dashboard service
 
----
+1. In your Railway project → click **New → GitHub Repo** (same repo)
+2. Click on the new service → **Settings**
+3. Leave **Root Directory** blank (build context is the repo root)
+4. Set **Dockerfile Path** to `dashboard/Dockerfile`
+5. Under **Networking → Expose port**: set to `8501`
+6. Click **Generate Domain** to get a public URL (this is your dashboard URL)
 
-## STEP 4 — Set environment variables in Netlify
+### Step 5 — Create a shared Volume
 
-This is how the password stays OUT of your code.
+Both services need to read/write the same CSV files.
 
-1. In Netlify: go to your site → **Site configuration → Environment variables**
-2. Click **Add a variable** for each of these:
+1. In your Railway project → click **New → Volume**
+2. Name it `snc-data`
+3. **Attach it to the API service**:
+   - Click the API service → **Volumes** tab
+   - Select `snc-data` → Mount path: `/data`
+4. **Attach it to the Dashboard service**:
+   - Click the dashboard service → **Volumes** tab
+   - Select `snc-data` → Mount path: `/data`
 
-| Key | Value | Notes |
-|-----|-------|-------|
+### Step 6 — Set environment variables
+
+Set these on **both** services (API and Dashboard):
+
+| Variable | Value | Notes |
+|----------|-------|-------|
 | `DASHBOARD_PASSWORD` | `YourSecretPassword` | Coach login password |
-| `TOKEN_SECRET` | `any-random-string-here` | e.g. `knights2026xk9m` — just make it random |
+| `DATA_DIR` | `/data` | Must match the Volume mount path |
 
-> The dashboard reads its live data straight from Google Sheets (next step),
-> so no Netlify API token is needed.
+To set variables:
+- Click the service → **Variables** tab → **New Variable**
 
-3. After adding all variables: click **Deploy → Trigger deploy → Deploy site**
-   (Variables only take effect on new deploys)
+After adding variables, Railway will automatically redeploy both services.
 
----
+### Step 7 — Verify deployment
 
-## CONNECT GOOGLE SHEETS (live data)
+1. Open `https://your-api.railway.app/checkin` — you should see the player check-in form
+2. Open `https://your-dashboard.railway.app` — you should see the login screen
+3. Log in, go to **Admin**, add your players, click **Save Roster**
+4. Go back to the check-in form — players should now appear
 
-Until you do this, the dashboard shows **sample data**. This connects the
-pipeline so every player check-in lands permanently in a Google Sheet and
-flows to the dashboard. No Zapier, no paid tier — all free.
+### Step 8 — Share with players
 
-### A — Create the Sheet
-1. Go to **sheets.google.com** → **Blank spreadsheet**
-2. Rename it `Knights Data` (top-left)
-3. Leave the tabs empty — the script creates `wellness`, `sessions`,
-   `bowling`, and `status` tabs automatically on first submission
+Send players the check-in URL and ask them to bookmark it:
+- iPhone: Safari → Share → **Add to Home Screen**
+- Android: Chrome → menu (⋮) → **Add to Home Screen**
 
-### B — Add the Apps Script
-1. In the Sheet: **Extensions → Apps Script**
-2. Delete the placeholder `function myFunction() {}`
-3. Open `apps-script.gs` from this repo, copy ALL of it, paste it in
-4. (Optional) Change `SECRET_KEY` at the top to your own random string.
-   If you do, set the same value as `APPS_SCRIPT_KEY` in `public/index.html`
-5. Click the **Save** (disk) icon
-
-### C — Deploy it as a Web App
-1. Click **Deploy → New deployment**
-2. Click the gear ⚙ next to "Select type" → **Web app**
-3. Settings:
-   - Description: `knights`
-   - Execute as: **Me**
-   - Who has access: **Anyone**  ← required, both Netlify and the dashboard call it
-4. Click **Deploy** → **Authorize access** → pick your Google account →
-   "Advanced" → "Go to … (unsafe)" → **Allow** (this is your own script)
-5. Copy the **Web app URL** — it ends in `/exec`
-
-> If you ever edit the script, you must **Deploy → Manage deployments →
-> Edit (pencil) → Version: New version → Deploy** for changes to go live.
-> The `/exec` URL stays the same.
-
-### D — Point the dashboard at the Sheet
-1. In `public/index.html`, near the top of the `<script>` find:
-   ```javascript
-   const APPS_SCRIPT_URL = '';
-   const APPS_SCRIPT_KEY = 'knights-sheet-key';
-   ```
-2. Paste your `/exec` URL into `APPS_SCRIPT_URL`. Make sure `APPS_SCRIPT_KEY`
-   matches `SECRET_KEY` in `apps-script.gs`
-3. Push to GitHub (`git add . && git commit -m "connect sheets" && git push`)
-
-### E — Forward Netlify submissions to the script
-1. Netlify → your site → **Site configuration → Notifications → Forms**
-   (also reachable via **Forms → Settings & usage → Form notifications**)
-2. **Add notification → Outgoing webhook**
-3. Settings:
-   - Event to listen for: **New form submission**
-   - URL to notify: *paste your `/exec` Web app URL* (no `?key=` needed here)
-   - Form: **Any form** (or pick `daily-wellness`)
-4. **Save**
-
-### F — Test it end-to-end
-1. Open `https://yoursite.netlify.app/checkin`, submit a check-in
-2. Within a second or two, a row appears in the `wellness` tab of your Sheet
-3. Open the dashboard, log in, refresh — the banner turns green
-   (**"Connected to Google Sheets — live data"**) and the entry shows up
+It appears as an app icon on their phone. One tap → select name → submit.
 
 ---
 
-## STEP 5 — Update the player list
+## Making changes
 
-In `public/checkin.html`, find the `PLAYERS` array near the top of the `<script>` section:
+Any push to `main` triggers an automatic redeploy on Railway:
 
-```javascript
-const PLAYERS = [
-  {name:"Ravi Kumar",    role:"All-Rounder", isBowler: true},
-  ...
-];
-```
-
-Update names, roles, and set `isBowler: true` for all fast bowlers/seamers
-(they get the extra hamstring/groin/back questions).
-
-After editing, push to GitHub:
-```bash
-git add .
-git commit -m "update player list"
-git push
-```
-
-Netlify auto-redeploys in ~20 seconds.
-
----
-
-## STEP 6 — Test everything
-
-**Test player check-in:**
-1. Open `https://yoursite.netlify.app/checkin`
-2. Select a player, fill in the sliders, submit
-3. Go to Netlify → your site → **Forms** → you should see the submission
-
-**Test coach dashboard:**
-1. Open `https://yoursite.netlify.app`
-2. Enter the password you set in `DASHBOARD_PASSWORD`
-3. Should log in and show the dashboard
-4. After a player submits, refresh the dashboard — data should appear
-
----
-
-## STEP 7 — Share with players
-
-Send players this link:
-```
-https://yoursite.netlify.app/checkin
-```
-
-Ask them to **bookmark it** on their phone's home screen:
-- iPhone: Safari → Share → Add to Home Screen
-- Android: Chrome → menu (3 dots) → Add to Home Screen
-
-It will appear as an app icon. One tap, select name, submit. Done.
-
----
-
-## UPDATING THE DASHBOARD IN FUTURE
-
-Any change is just:
 ```bash
 git add .
 git commit -m "describe what you changed"
 git push
 ```
 
-Netlify picks it up automatically. Live in ~20 seconds.
+---
+
+## Troubleshooting
+
+**Check-in form shows "No players in roster yet"**
+→ Log into the dashboard → Admin tab → add players → Save Roster.
+The check-in form reads the roster at page load time from the shared volume.
+
+**Dashboard login always fails**
+→ Check that `DASHBOARD_PASSWORD` is set correctly on the dashboard service in Railway (no extra spaces).
+→ Trigger a manual redeploy after updating env vars.
+
+**Submissions not appearing in the dashboard**
+→ Confirm both services have the same Volume mounted at `/data`.
+→ Check Railway logs for the API service (click service → **Logs**) for any write errors.
+
+**Volume shows empty after redeployment**
+→ Railway Volumes are persistent — data is not lost on redeploy. If the CSV is missing, it may not have been written yet. Submit a test check-in and refresh.
+
+**Port not accessible**
+→ Make sure the port is exposed under **Networking** in each service's settings (8000 for API, 8501 for dashboard).
 
 ---
 
-## ADDING SESSION RPE FORM (Phase 1.5)
+## Adding session RPE and bowling data
 
-When you're ready to add a post-training RPE form, create
-`public/rpe.html` following the same pattern as `checkin.html`.
-The Netlify form name must be `session-rpe` to match the `FORM_TABS`
-map in `apps-script.gs` (the bowling and status forms map to
-`bowling-load` and `player-status` respectively). No script changes
-needed — the matching tab is created automatically on first submission.
-
----
-
-## TROUBLESHOOTING
-
-**"Page not found" on /checkin**
-→ Make sure publish directory is set to `public` in Netlify build settings
-
-**Password always says incorrect**
-→ Check `DASHBOARD_PASSWORD` env var is set in Netlify (no extra spaces)
-→ Trigger a fresh deploy after setting env vars
-
-**Dashboard shows sample data even after submissions**
-→ Is `APPS_SCRIPT_URL` filled in (and pushed) in `public/index.html`?
-→ Does `APPS_SCRIPT_KEY` match `SECRET_KEY` in `apps-script.gs`?
-→ Open the `/exec` URL with `?key=YOUR_KEY` in a browser — you should see JSON.
-   If you see "Unauthorized", the keys don't match. If you see a Google login
-   page, the Web app "Who has access" isn't set to **Anyone**
-→ Open browser console (F12) on the dashboard for error messages
-
-**Rows not appearing in the Google Sheet**
-→ Netlify → Forms — did the submission appear there first?
-→ Netlify → Notifications → confirm the outgoing webhook points to the `/exec` URL
-→ Apps Script editor → **Executions** (left sidebar) — look for failed `doPost` runs
-→ If you edited the script, re-deploy a **New version** (see step C note)
-
-**Form submissions not appearing in Netlify**
-→ The hidden form detection element in `checkin.html` must be present
-→ Try redeploying — Netlify scans for forms at deploy time
-
----
-
-## PHASE 2 UPGRADE PATH
-
-When ready to add player-facing profiles, history, and proper auth:
-- **Database**: Supabase (free tier)
-- **Auth**: Supabase Auth with Google OAuth
-- **Framework**: Next.js on Vercel or Netlify
-- All Netlify Forms data can be exported as CSV and imported to Supabase
+Session load and bowling data can be logged directly from the **Session Load** and **Bowling Load** tabs in the coach dashboard — no separate form needed. Use the expandable **+ Log Session** / **+ Log Bowling Session** panels.

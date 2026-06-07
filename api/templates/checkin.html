@@ -240,12 +240,15 @@ function renderPlayerGrid() {
     grid.innerHTML = '<div class="grid-message">No players in roster yet. Ask your coach to add players via the dashboard.</div>';
     return;
   }
-  grid.innerHTML = PLAYERS.map(p =>
-    `<button class="player-btn" onclick="selectPlayer(${JSON.stringify(p.name)})">
+  grid.innerHTML = PLAYERS.map((p, i) =>
+    `<button class="player-btn" data-index="${i}">
       <div class="pname">${p.name}</div>
       <div class="prole">${p.role || ''}</div>
     </button>`
   ).join('');
+  grid.querySelectorAll('.player-btn').forEach(btn => {
+    btn.addEventListener('click', () => selectPlayer(PLAYERS[btn.dataset.index].name));
+  });
 }
 renderPlayerGrid();
 
