@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Knights — Daily Check-in</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:      #0a0c0f;
+    --surface: #111318;
+    --card:    #161a22;
+    --border:  #1f2530;
+    --text:    #e8edf5;
+    --muted:   #6b7a90;
+    --accent:  #00c2ff;
+    --green:   #22c55e;
+    --yellow:  #f59e0b;
+    --red:     #ef4444;
+    --font-display: 'Bebas Neue', sans-serif;
+    --font-body:    'DM Sans', sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text); font-family: var(--font-body);
+    min-height: 100vh; padding: 0 0 60px;
+  }
+  .top-bar {
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 14px 20px; display: flex; align-items: center; justify-content: space-between;
+  }
+  .top-logo { font-family: var(--font-display); font-size: 20px; letter-spacing: 3px; }
+  .top-logo span { color: var(--accent); }
+  .top-date { color: var(--muted); font-size: 12px; }
+  .screen { display: none; padding: 24px 20px; max-width: 480px; margin: 0 auto; }
+  .screen.active { display: block; animation: fadeUp 0.3s ease; }
+  .screen-title { font-family: var(--font-display); font-size: 28px; letter-spacing: 2px; margin-bottom: 6px; }
+  .screen-sub { color: var(--muted); font-size: 13px; margin-bottom: 28px; }
+  .player-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .player-btn {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 12px; text-align: left; cursor: pointer; transition: all 0.15s; color: var(--text);
+  }
+  .player-btn:active { transform: scale(0.97); }
+  .player-btn:hover { border-color: var(--accent); background: rgba(0,194,255,0.05); }
+  .player-btn .pname { font-size: 14px; font-weight: 500; }
+  .player-btn .prole { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .grid-message {
+    grid-column: 1 / -1; text-align: center; color: var(--muted);
+    font-size: 14px; padding: 40px 16px; line-height: 1.6;
+  }
+  .form-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+  .back-btn {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--muted); padding: 6px 12px; cursor: pointer; font-size: 13px;
+    font-family: var(--font-body); transition: color 0.2s;
+  }
+  .back-btn:hover { color: var(--text); }
+  .player-tag {
+    background: rgba(0,194,255,0.1); border: 1px solid rgba(0,194,255,0.2);
+    color: var(--accent); padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 500;
+  }
+  .question { margin-bottom: 28px; }
+  .q-label {
+    font-size: 14px; font-weight: 500; margin-bottom: 6px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .q-score {
+    font-family: 'Bebas Neue', sans-serif; font-size: 28px;
+    line-height: 1; min-width: 30px; text-align: right; transition: color 0.2s;
+  }
+  .q-hint { color: var(--muted); font-size: 11px; margin-bottom: 12px; }
+  input[type=range] {
+    width: 100%; -webkit-appearance: none; height: 6px; border-radius: 3px;
+    outline: none; cursor: pointer; background: var(--border);
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 24px; height: 24px; border-radius: 50%;
+    background: var(--accent); border: 3px solid var(--bg);
+    box-shadow: 0 0 0 2px var(--accent); transition: transform 0.1s;
+  }
+  input[type=range]:active::-webkit-slider-thumb { transform: scale(1.2); }
+  .slider-labels {
+    display: flex; justify-content: space-between; margin-top: 6px; font-size: 10px; color: var(--muted);
+  }
+  .section-divider {
+    display: flex; align-items: center; gap: 10px; margin: 32px 0 24px;
+    color: var(--muted); font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase;
+  }
+  .section-divider::before, .section-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  .notes-input {
+    width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; color: var(--text); font-family: var(--font-body); font-size: 14px;
+    resize: none; outline: none; transition: border-color 0.2s; min-height: 80px;
+  }
+  .notes-input:focus { border-color: var(--accent); }
+  .notes-input::placeholder { color: var(--muted); }
+  .submit-btn {
+    width: 100%; background: var(--accent); color: #000; border: none; border-radius: 12px;
+    padding: 16px; font-family: var(--font-display); font-size: 22px; letter-spacing: 2px;
+    cursor: pointer; margin-top: 32px; transition: opacity 0.2s, transform 0.1s;
+  }
+  .submit-btn:active { transform: scale(0.98); opacity: 0.9; }
+  .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .success-icon { font-size: 64px; text-align: center; margin: 40px 0 16px; }
+  .success-title {
+    font-family: var(--font-display); font-size: 36px; letter-spacing: 3px;
+    text-align: center; color: var(--green); margin-bottom: 8px;
+  }
+  .success-sub { color: var(--muted); text-align: center; font-size: 14px; margin-bottom: 40px; }
+  .success-summary {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px; margin-bottom: 24px;
+  }
+  .summary-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px;
+  }
+  .summary-row:last-child { border-bottom: none; }
+  .summary-label { color: var(--muted); }
+  .summary-val { font-weight: 600; }
+  .another-btn {
+    width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px; color: var(--text); font-family: var(--font-body); font-size: 14px;
+    cursor: pointer; transition: border-color 0.2s;
+  }
+  @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <div class="top-logo">NALGONDA <span>KNIGHTS</span></div>
+  <div class="top-date" id="top-date"></div>
+</div>
+
+<!-- SCREEN 1: SELECT PLAYER -->
+<div class="screen active" id="screen-player">
+  <div style="height:24px;"></div>
+  <div class="screen-title">DAILY<br>CHECK-IN</div>
+  <div class="screen-sub">Select your name to begin today's check-in</div>
+  <div class="player-grid" id="player-grid"></div>
+</div>
+
+<!-- SCREEN 2: WELLNESS FORM -->
+<div class="screen" id="screen-form">
+  <div class="form-header">
+    <button class="back-btn" onclick="goBack()">← Back</button>
+    <div class="player-tag" id="selected-name"></div>
+  </div>
+  <div class="screen-title">HOW ARE<br>YOU TODAY?</div>
+  <div style="height:20px;"></div>
+
+  <div class="question">
+    <div class="q-label">😴 Sleep Quality<span class="q-score" id="score-sleep" style="color:var(--yellow);">3</span></div>
+    <div class="q-hint">How well did you sleep last night?</div>
+    <input type="range" min="1" max="5" value="3" id="slider-sleep" oninput="updateSlider('sleep', this.value)">
+    <div class="slider-labels"><span>Very Poor</span><span>Excellent</span></div>
+  </div>
+
+  <div class="question">
+    <div class="q-label">⚡ Energy Level<span class="q-score" id="score-energy" style="color:var(--yellow);">3</span></div>
+    <div class="q-hint">How is your energy this morning?</div>
+    <input type="range" min="1" max="5" value="3" id="slider-energy" oninput="updateSlider('energy', this.value)">
+    <div class="slider-labels"><span>Very Low</span><span>Excellent</span></div>
+  </div>
+
+  <div class="question">
+    <div class="q-label">💪 Body Soreness<span class="q-score" id="score-soreness" style="color:var(--yellow);">3</span></div>
+    <div class="q-hint">How sore do you feel? (1 = fresh, 5 = very sore)</div>
+    <input type="range" min="1" max="5" value="3" id="slider-soreness" oninput="updateSlider('soreness', this.value)">
+    <div class="slider-labels"><span>Fresh</span><span>Very Sore</span></div>
+  </div>
+
+  <div class="question">
+    <div class="q-label">🧠 Mood<span class="q-score" id="score-mood" style="color:var(--yellow);">3</span></div>
+    <div class="q-hint">How are you feeling mentally?</div>
+    <input type="range" min="1" max="5" value="3" id="slider-mood" oninput="updateSlider('mood', this.value)">
+    <div class="slider-labels"><span>Poor</span><span>Great</span></div>
+  </div>
+
+  <div class="question">
+    <div class="q-label">😤 Stress<span class="q-score" id="score-stress" style="color:var(--yellow);">3</span></div>
+    <div class="q-hint">How stressed do you feel? (1 = relaxed, 5 = very stressed)</div>
+    <input type="range" min="1" max="5" value="3" id="slider-stress" oninput="updateSlider('stress', this.value)">
+    <div class="slider-labels"><span>Relaxed</span><span>Very Stressed</span></div>
+  </div>
+
+  <div id="bowler-section" style="display:none;">
+    <div class="section-divider">Fast Bowler Specific</div>
+    <div class="question">
+      <div class="q-label">🦵 Hamstring<span class="q-score" id="score-hamstring" style="color:var(--green);">1</span></div>
+      <div class="q-hint">Any tightness or neural pull? (1 = none, 5 = very tight)</div>
+      <input type="range" min="1" max="5" value="1" id="slider-hamstring" oninput="updateSlider('hamstring', this.value)">
+      <div class="slider-labels"><span>None</span><span>Very Tight</span></div>
+    </div>
+    <div class="question">
+      <div class="q-label">🦵 Groin<span class="q-score" id="score-groin" style="color:var(--green);">1</span></div>
+      <div class="q-hint">Any adductor stiffness? (1 = none, 5 = very tight)</div>
+      <input type="range" min="1" max="5" value="1" id="slider-groin" oninput="updateSlider('groin', this.value)">
+      <div class="slider-labels"><span>None</span><span>Very Tight</span></div>
+    </div>
+    <div class="question">
+      <div class="q-label">🔙 Lower Back<span class="q-score" id="score-back" style="color:var(--green);">1</span></div>
+      <div class="q-hint">Lumbar stiffness or extension soreness? (1 = none, 5 = very stiff)</div>
+      <input type="range" min="1" max="5" value="1" id="slider-back" oninput="updateSlider('back', this.value)">
+      <div class="slider-labels"><span>None</span><span>Very Stiff</span></div>
+    </div>
+  </div>
+
+  <div class="section-divider">Notes</div>
+  <textarea class="notes-input" id="notes-input" placeholder="Any pain, restriction, or context for the physio? (optional)"></textarea>
+  <button class="submit-btn" id="submit-btn" onclick="submitWellness()">SUBMIT CHECK-IN</button>
+</div>
+
+<!-- SCREEN 3: SUCCESS -->
+<div class="screen" id="screen-success">
+  <div class="success-icon">✅</div>
+  <div class="success-title">SUBMITTED!</div>
+  <div class="success-sub" id="success-sub">Check-in recorded.</div>
+  <div class="success-summary" id="success-summary"></div>
+  <button class="another-btn" onclick="resetForm()">Submit for another player</button>
+</div>
+
+<script>
+document.getElementById('top-date').textContent = new Date().toLocaleDateString('en-GB', {
+  weekday: 'short', day: 'numeric', month: 'short'
+});
+
+// Players injected server-side from roster.csv
+const PLAYERS = {{ players | tojson }};
+const FAST_BOWLERS = new Set({{ fast_bowlers | tojson }});
+
+let selectedPlayer = null;
+const scores = { sleep:3, energy:3, soreness:3, mood:3, stress:3, hamstring:1, groin:1, back:1 };
+
+function renderPlayerGrid() {
+  const grid = document.getElementById('player-grid');
+  if (!PLAYERS.length) {
+    grid.innerHTML = '<div class="grid-message">No players in roster yet. Ask your coach to add players via the dashboard.</div>';
+    return;
+  }
+  grid.innerHTML = PLAYERS.map(p =>
+    `<button class="player-btn" onclick="selectPlayer(${JSON.stringify(p.name)})">
+      <div class="pname">${p.name}</div>
+      <div class="prole">${p.role || ''}</div>
+    </button>`
+  ).join('');
+}
+renderPlayerGrid();
+
+function selectPlayer(name) {
+  selectedPlayer = { name, isBowler: FAST_BOWLERS.has(name) };
+  document.getElementById('selected-name').textContent = name;
+  document.getElementById('bowler-section').style.display = selectedPlayer.isBowler ? 'block' : 'none';
+
+  ['sleep','energy','soreness','mood','stress'].forEach(k => { scores[k] = 3; document.getElementById('slider-'+k).value = 3; updateSlider(k, 3); });
+  ['hamstring','groin','back'].forEach(k => { scores[k] = 1; document.getElementById('slider-'+k).value = 1; updateSlider(k, 1); });
+  document.getElementById('notes-input').value = '';
+  showScreen('screen-form');
+}
+
+function updateSlider(key, val) {
+  scores[key] = parseInt(val);
+  const el = document.getElementById('score-' + key);
+  el.textContent = val;
+  const inverse = ['soreness','hamstring','groin','back'].includes(key);
+  const v = parseInt(val);
+  const color = inverse
+    ? (v >= 4 ? 'var(--red)' : v === 3 ? 'var(--yellow)' : 'var(--green)')
+    : (v <= 2 ? 'var(--red)' : v === 3 ? 'var(--yellow)' : 'var(--green)');
+  el.style.color = color;
+  const pct = ((v - 1) / 4) * 100;
+  document.getElementById('slider-' + key).style.background =
+    `linear-gradient(to right, ${color} 0%, ${color} ${pct}%, var(--border) ${pct}%, var(--border) 100%)`;
+}
+
+function goBack() { showScreen('screen-player'); }
+
+async function submitWellness() {
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'SUBMITTING...';
+
+  const payload = {
+    player_name: selectedPlayer.name,
+    sleep_quality: scores.sleep,
+    energy_level: scores.energy,
+    body_soreness: scores.soreness,
+    mood: scores.mood,
+    stress_level: scores.stress,
+    hamstring_tightness: selectedPlayer.isBowler ? scores.hamstring : null,
+    groin_stiffness: selectedPlayer.isBowler ? scores.groin : null,
+    lower_back_stiffness: selectedPlayer.isBowler ? scores.back : null,
+    notes: document.getElementById('notes-input').value,
+  };
+
+  try {
+    const res = await fetch('/submit/wellness', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error('Server error');
+    showSuccess();
+  } catch (err) {
+    alert('Submission failed. Please check your connection and try again.');
+    btn.disabled = false;
+    btn.textContent = 'SUBMIT CHECK-IN';
+  }
+}
+
+function showSuccess() {
+  document.getElementById('success-sub').textContent = `${selectedPlayer.name} — check-in recorded.`;
+  const metrics = [
+    { label: '😴 Sleep Quality', val: scores.sleep,    inverse: false },
+    { label: '⚡ Energy Level',  val: scores.energy,   inverse: false },
+    { label: '💪 Body Soreness', val: scores.soreness, inverse: true  },
+    { label: '🧠 Mood',          val: scores.mood,     inverse: false },
+    { label: '😤 Stress',        val: scores.stress,   inverse: true  },
+  ];
+  if (selectedPlayer.isBowler) {
+    metrics.push(
+      { label: '🦵 Hamstring', val: scores.hamstring, inverse: true },
+      { label: '🦵 Groin',     val: scores.groin,     inverse: true },
+      { label: '🔙 Lower Back', val: scores.back,     inverse: true },
+    );
+  }
+  document.getElementById('success-summary').innerHTML = metrics.map(m => {
+    const v = m.val;
+    const color = m.inverse
+      ? (v <= 2 ? 'var(--green)' : v >= 4 ? 'var(--red)' : 'var(--yellow)')
+      : (v >= 4 ? 'var(--green)' : v <= 2 ? 'var(--red)' : 'var(--yellow)');
+    return `<div class="summary-row">
+      <span class="summary-label">${m.label}</span>
+      <span class="summary-val" style="color:${color}">${v}/5</span>
+    </div>`;
+  }).join('');
+  showScreen('screen-success');
+}
+
+function resetForm() {
+  selectedPlayer = null;
+  document.getElementById('submit-btn').disabled = false;
+  document.getElementById('submit-btn').textContent = 'SUBMIT CHECK-IN';
+  showScreen('screen-player');
+}
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  window.scrollTo(0, 0);
+}
+
+['sleep','energy','soreness','mood','stress'].forEach(k => updateSlider(k, 3));
+['hamstring','groin','back'].forEach(k => updateSlider(k, 1));
+</script>
+</body>
+</html>
