@@ -633,7 +633,7 @@ def _metric_card(label: str, value: str, sub: str = "", color: str = "#e8edf5") 
 def render_player_load():
     roster   = load_roster()
     sessions = load_sessions()
-    bowling  = load_bowling()
+    evening  = load_evening()
     today    = date.today()
     now_ts   = pd.Timestamp(today)
 
@@ -645,27 +645,23 @@ def render_player_load():
 
     # ── Player selector ──────────────────────────────────────────────────────
     names = roster["name"].dropna().tolist()
-    col_sel, col_log_s, col_log_b = st.columns([2, 1, 1])
+    col_sel, col_log_s = st.columns([3, 1])
     with col_sel:
         sel = st.selectbox("Select Player", names, key="load_player_sel", label_visibility="collapsed")
 
     player_row = roster[roster["name"] == sel].iloc[0]
     is_fb      = is_fast_bowler(player_row.get("is_fast_bowler"))
 
-    ps = sessions[sessions["player_name"] == sel].copy() if not sessions.empty else pd.DataFrame()
-    pb = bowling[bowling["player_name"] == sel].copy()   if not bowling.empty  else pd.DataFrame()
+    ps  = sessions[sessions["player_name"] == sel].copy() if not sessions.empty else pd.DataFrame()
+    pec = evening[evening["player_name"] == sel].copy()   if not evening.empty  else pd.DataFrame()
 
     week_ago  = now_ts - timedelta(days=7)
     month_ago = now_ts - timedelta(days=28)
 
-    # ── Log forms ────────────────────────────────────────────────────────────
+    # ── Log form ─────────────────────────────────────────────────────────────
     with col_log_s:
         if st.button("+ Log Session", use_container_width=True):
             st.session_state["show_log_session"] = True
-    with col_log_b:
-        if is_fb:
-            if st.button("+ Log Bowling", use_container_width=True):
-                st.session_state["show_log_bowling"] = True
 
     if st.session_state.get("show_log_session"):
         with st.expander("Log Session", expanded=True):
@@ -690,29 +686,6 @@ def render_player_load():
                     except Exception as e:
                         st.error(f"Failed: {e}")
 
-    if st.session_state.get("show_log_bowling") and is_fb:
-        with st.expander("Log Bowling", expanded=True):
-            c1, c2, c3 = st.columns(3)
-            with c1: b_match = st.number_input("Match balls",        0, 500, 0, key="bl_match")
-            with c2: b_net   = st.number_input("Net balls",          0, 500, 0, key="bl_net")
-            with c3: b_hi    = st.number_input("High intensity balls",0, 500, 0, key="bl_hi")
-            b_notes = st.text_input("Notes", key="bl_notes")
-            cc1, cc2 = st.columns([1, 4])
-            with cc1:
-                if st.button("Submit", type="primary", key="bl_submit"):
-                    try:
-                        r = requests.post(f"{API_URL}/data/bowling", json={
-                            "player_name": sel, "match_balls": b_match,
-                            "net_balls": b_net, "high_intensity_balls": b_hi, "notes": b_notes,
-                        }, timeout=5)
-                        r.raise_for_status()
-                        load_bowling.clear()
-                        st.session_state["show_log_bowling"] = False
-                        st.success(f"Bowling logged for {sel}")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Failed: {e}")
-
     st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
 
     # ════════════════════════════════════════════════════════════════════════
@@ -727,8 +700,59 @@ def render_player_load():
     )
     st.markdown(f'<div style="font-size:12px;margin-bottom:16px;">{rpe_html}</div>', unsafe_allow_html=True)
 
-    if ps.empty:
+    if ps.empty and pec.empty:
         st.info(f"No session data for {sel} yet.")
+    elif ps.empty and not pec.empty:
+        # Only evening check-in data available — show RPE trend from check-ins
+        st.caption("Showing RPE from evening check-ins. Use '+ Log Session' to add full sessions with load (AU) tracking.")
+        pec_week  = pec[pec["timestamp"] >= week_ago]
+        pec_month = pec[pec["timestamp"] >= month_ago]
+
+        checkins_this_week = len(pec_week)
+        avg_rpe_week = round(pec_week["session_rpe"].mean(), 1) if not pec_week.empty else 0
+
+        m1, m2 = st.columns(4)[:2]
+        with m1: st.markdown(_metric_card("Check-ins this week", str(checkins_this_week)), unsafe_allow_html=True)
+        with m2: st.markdown(_metric_card("Avg RPE (7d)", str(avg_rpe_week), color=_rpe_color(avg_rpe_week)), unsafe_allow_html=True)
+
+        st.markdown("<div style='height:20px;'></div>", unsafe_allow_html=True)
+
+        if not pec_month.empty:
+            daily_ec = pec_month.groupby("date").agg(
+                avg_rpe=("session_rpe", "mean"),
+                count=("session_rpe", "count"),
+            ).reset_index()
+            daily_ec["date_str"] = daily_ec["date"].astype(str)
+            daily_ec["color"] = daily_ec["avg_rpe"].apply(_rpe_color)
+
+            fig_ec = go.Figure()
+            for _, row in daily_ec.iterrows():
+                fig_ec.add_trace(go.Bar(
+                    x=[row["date_str"]], y=[row["avg_rpe"]],
+                    marker_color=row["color"], name="", showlegend=False,
+                    hovertemplate=f"<b>{row['date_str']}</b><br>Avg RPE: {row['avg_rpe']:.1f}<br>Check-ins: {int(row['count'])}<extra></extra>",
+                ))
+            fig_ec.update_layout(
+                **{**DARK_LAYOUT, "margin": dict(t=16, b=24, l=8, r=8)},
+                height=220, barmode="stack", bargap=0.15,
+                title=dict(text="28-Day RPE Trend (Evening Check-ins)", font=dict(size=13), x=0),
+                xaxis=dict(gridcolor="#1f2530"),
+                yaxis=dict(gridcolor="#1f2530", title="Avg RPE", range=[0, 10]),
+            )
+            st.plotly_chart(fig_ec, use_container_width=True, key=f"ec_rpe_trend_{sel}")
+
+        with st.expander("Recent Check-ins", expanded=False):
+            display_ec = pec.sort_values("timestamp", ascending=False).head(20)[
+                ["date", "session_rpe", "did_bowl", "bowling_volume", "bowling_intensity"]
+            ].rename(columns={
+                "date": "Date", "session_rpe": "RPE", "did_bowl": "Bowled",
+                "bowling_volume": "Volume", "bowling_intensity": "Intensity",
+            })
+            def rpe_style_ec(val):
+                try: return f"color:{_rpe_color(float(val))}"
+                except: return ""
+            st.dataframe(display_ec.style.applymap(rpe_style_ec, subset=["RPE"]),
+                         use_container_width=True, height=320)
     else:
         ps_week  = ps[ps["timestamp"] >= week_ago]
         ps_month = ps[ps["timestamp"] >= month_ago]
@@ -834,8 +858,34 @@ def render_player_load():
             st.dataframe(display_s.style.applymap(rpe_style, subset=["RPE"]),
                          use_container_width=True, height=320)
 
+        # ── Evening check-in RPE trend (if available) ─────────────────────────
+        if not pec.empty:
+            pec_month = pec[pec["timestamp"] >= month_ago]
+            if not pec_month.empty:
+                st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
+                daily_ec = pec_month.groupby("date").agg(
+                    avg_rpe=("session_rpe", "mean"),
+                    count=("session_rpe", "count"),
+                ).reset_index()
+                daily_ec["date_str"] = daily_ec["date"].astype(str)
+                fig_ec = go.Figure(go.Scatter(
+                    x=daily_ec["date_str"], y=daily_ec["avg_rpe"],
+                    mode="lines+markers",
+                    marker=dict(color=[_rpe_color(v) for v in daily_ec["avg_rpe"]], size=8),
+                    line=dict(color="#6b7a90", width=1.5),
+                    hovertemplate="<b>%{x}</b><br>Check-in RPE: %{y:.1f}<extra></extra>",
+                ))
+                fig_ec.update_layout(
+                    **{**DARK_LAYOUT, "margin": dict(t=16, b=24, l=8, r=8)},
+                    height=180,
+                    title=dict(text="Evening Check-in RPE (28d)", font=dict(size=13), x=0),
+                    xaxis=dict(gridcolor="#1f2530"),
+                    yaxis=dict(gridcolor="#1f2530", title="RPE", range=[0, 10]),
+                )
+                st.plotly_chart(fig_ec, use_container_width=True, key=f"ec_line_{sel}")
+
     # ════════════════════════════════════════════════════════════════════════
-    # BOWLING LOAD SECTION  (fast bowlers only)
+    # BOWLING LOAD SECTION  (fast bowlers only, sourced from evening check-ins)
     # ════════════════════════════════════════════════════════════════════════
     if not is_fb:
         return
@@ -844,72 +894,74 @@ def render_player_load():
     st.divider()
     st.markdown("### Bowling Load")
 
-    if pb.empty:
+    pec_bowl = pec[pec["did_bowl"].astype(str).str.lower().isin(["true", "1", "yes"])].copy() if not pec.empty else pd.DataFrame()
+
+    if pec_bowl.empty:
         st.info(f"No bowling data for {sel} yet.")
         return
 
-    pb = pb.assign(
-        total_balls=pb[["match_balls","net_balls","high_intensity_balls"]].fillna(0).sum(axis=1)
-    )
+    # Intensity order for sorting / coloring
+    INTENSITY_ORDER = {"Low": 1, "Moderate": 2, "High": 3}
+    INTENSITY_COLOR = {"Low": "#22c55e", "Moderate": "#f59e0b", "High": "#ef4444"}
 
-    pb_week  = pb[pb["timestamp"] >= week_ago]
-    pb_month = pb[pb["timestamp"] >= month_ago]
+    pec_bowl_week  = pec_bowl[pec_bowl["timestamp"] >= week_ago]
+    pec_bowl_month = pec_bowl[pec_bowl["timestamp"] >= month_ago]
 
-    weekly_balls   = int(pb_week["total_balls"].sum())
-    acute_b        = float(pb_week["total_balls"].sum())
-    chronic_b      = float(pb_month["total_balls"].sum()) / 4 if len(pb_month) >= 4 else float(pb_month["total_balls"].sum())
-    acwr_b         = round(acute_b / chronic_b, 2) if chronic_b > 0 else 0.0
-    acwr_b_risk    = "Low" if acwr_b < 1.3 else ("High" if acwr_b > 1.5 else "Moderate")
-    acwr_b_color   = {"Low": "#22c55e", "Moderate": "#f59e0b", "High": "#ef4444"}.get(acwr_b_risk, "#6b7a90")
+    bowling_days_week = len(pec_bowl_week["date"].unique())
+    if not pec_bowl_week.empty and "bowling_intensity" in pec_bowl_week.columns:
+        dominant_intensity = pec_bowl_week["bowling_intensity"].mode().iloc[0] if not pec_bowl_week["bowling_intensity"].dropna().empty else "—"
+    else:
+        dominant_intensity = "—"
+    intensity_color = INTENSITY_COLOR.get(dominant_intensity, "#6b7a90")
 
-    # Bowling status band from overview thresholds
-    bowl_label, bowl_color = bowler_status_band(weekly_balls)
-
-    b1, b2, b3 = st.columns(3)
-    with b1: st.markdown(_metric_card("Weekly Balls (7d)", str(weekly_balls), color=bowl_color), unsafe_allow_html=True)
-    with b2: st.markdown(_metric_card("4-Week Avg (balls/wk)", str(int(chronic_b)), color="#6b7a90"), unsafe_allow_html=True)
-    with b3: st.markdown(_metric_card("Bowling ACWR", str(acwr_b), sub=f"{acwr_b_risk} risk", color=acwr_b_color), unsafe_allow_html=True)
+    b1, b2 = st.columns(2)
+    with b1: st.markdown(_metric_card("Bowling days (7d)", str(bowling_days_week)), unsafe_allow_html=True)
+    with b2: st.markdown(_metric_card("Dominant intensity (7d)", dominant_intensity, color=intensity_color), unsafe_allow_html=True)
 
     st.markdown("<div style='height:20px;'></div>", unsafe_allow_html=True)
 
-    # ── Stacked bar: balls by type over 4 weeks ──────────────────────────────
-    if not pb_month.empty:
-        pb_month_copy = pb_month.copy()
-        pb_month_copy["week"] = pb_month_copy["timestamp"].dt.to_period("W").astype(str)
-        weekly_by_type = pb_month_copy.groupby("week")[["match_balls","net_balls","high_intensity_balls"]].sum().reset_index()
+    # ── 28-day bowling intensity timeline ────────────────────────────────────
+    if not pec_bowl_month.empty:
+        bowl_daily = pec_bowl_month.groupby("date").agg(
+            intensity=("bowling_intensity", lambda x: x.mode().iloc[0] if not x.dropna().empty else "Low"),
+            volume=("bowling_volume", lambda x: x.mode().iloc[0] if not x.dropna().empty else ""),
+            sessions=("bowling_intensity", "count"),
+        ).reset_index()
+        bowl_daily["date_str"] = bowl_daily["date"].astype(str)
+        bowl_daily["color"] = bowl_daily["intensity"].map(INTENSITY_COLOR).fillna("#6b7a90")
+        bowl_daily["intensity_rank"] = bowl_daily["intensity"].map(INTENSITY_ORDER).fillna(1)
 
         fig_bowl = go.Figure()
-        ball_types = [
-            ("match_balls",          "Match",          "#f59e0b"),
-            ("net_balls",            "Net",             "#00c2ff"),
-            ("high_intensity_balls", "High Intensity",  "#ef4444"),
-        ]
-        for col, label, color in ball_types:
-            if col in weekly_by_type.columns:
+        for intensity, color in INTENSITY_COLOR.items():
+            subset = bowl_daily[bowl_daily["intensity"] == intensity]
+            if not subset.empty:
                 fig_bowl.add_trace(go.Bar(
-                    x=weekly_by_type["week"], y=weekly_by_type[col],
-                    name=label, marker_color=color,
-                    hovertemplate=f"{label}: %{{y}} balls<extra></extra>",
+                    x=subset["date_str"], y=subset["intensity_rank"],
+                    name=intensity, marker_color=color,
+                    hovertemplate="<b>%{x}</b><br>Intensity: " + intensity + "<br>Volume: %{customdata}<extra></extra>",
+                    customdata=subset["volume"],
                 ))
         fig_bowl.update_layout(
-            **{**DARK_LAYOUT, "margin": dict(t=32, b=24, l=8, r=8)},
-            height=240, barmode="stack",
-            title=dict(text="Weekly Bowling Volume by Type (last 4 weeks)", font=dict(size=13), x=0),
-            xaxis=dict(gridcolor="#1f2530", title="Week"),
-            yaxis=dict(gridcolor="#1f2530", title="Balls"),
-            legend=dict(orientation="h", y=-0.25),
+            **{**DARK_LAYOUT, "margin": dict(t=16, b=24, l=8, r=8)},
+            height=220, barmode="group",
+            title=dict(text="Bowling Days — Intensity (28d)", font=dict(size=13), x=0),
+            xaxis=dict(gridcolor="#1f2530"),
+            yaxis=dict(gridcolor="#1f2530", tickvals=[1, 2, 3], ticktext=["Low", "Moderate", "High"], title=""),
+            legend=dict(orientation="h", y=-0.3),
         )
-        st.plotly_chart(fig_bowl, use_container_width=True, key=f"bowl_stack_{sel}")
+        st.plotly_chart(fig_bowl, use_container_width=True, key=f"bowl_intensity_{sel}")
 
-    # ── Recent bowling table ──────────────────────────────────────────────────
-    with st.expander("Recent Bowling Sessions", expanded=False):
-        display_b = pb.sort_values("timestamp", ascending=False).head(20)[
-            ["date","match_balls","net_balls","high_intensity_balls","total_balls","notes"]
+    # ── Recent bowling check-ins table ────────────────────────────────────────
+    with st.expander("Recent Bowling Check-ins", expanded=False):
+        display_b = pec_bowl.sort_values("timestamp", ascending=False).head(20)[
+            ["date", "bowling_volume", "bowling_intensity", "session_rpe"]
         ].rename(columns={
-            "date": "Date", "match_balls": "Match", "net_balls": "Net",
-            "high_intensity_balls": "High Int.", "total_balls": "Total", "notes": "Notes",
+            "date": "Date", "bowling_volume": "Volume", "bowling_intensity": "Intensity", "session_rpe": "RPE",
         })
-        st.dataframe(display_b, use_container_width=True, height=300)
+        def intensity_style(val):
+            return f"color:{INTENSITY_COLOR.get(val, '#e8edf5')}"
+        st.dataframe(display_b.style.applymap(intensity_style, subset=["Intensity"]),
+                     use_container_width=True, height=300)
 
 with tab_load:
     render_player_load()
