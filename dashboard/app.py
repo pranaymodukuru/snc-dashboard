@@ -467,26 +467,47 @@ def render_overview():
 
         st.divider()
 
-        # ── Wellness Completed ────────────────────────────────────────────────
-        st.markdown("### Wellness Check-in Submitted")
-
-        submitted = set()
-        if not wellness.empty:
-            submitted = set(wellness[wellness["date"] == today]["player_name"].tolist())
+        # ── Check-in Completion ───────────────────────────────────────────────
         total = len(roster) if not roster.empty else 0
+        roster_names = roster["name"].tolist() if not roster.empty else []
 
-        st.markdown(f"""
-        <div style="font-size:32px;font-weight:800;color:#e8edf5;margin:8px 0;">
-          {len(submitted)}
-          <span style="font-size:18px;color:#6b7a90;">/ {total} players</span>
-        </div>
-        """, unsafe_allow_html=True)
+        morning_submitted = set()
+        if not wellness.empty:
+            morning_submitted = set(wellness[wellness["date"] == today]["player_name"].tolist())
 
-        missing = [n for n in (roster["name"].tolist() if not roster.empty else []) if n not in submitted]
-        if missing:
-            with st.expander(f"Not submitted ({len(missing)})"):
-                for name in missing:
-                    st.markdown(f"- {name}")
+        evening_submitted = set()
+        if not evening.empty and "date" in evening.columns:
+            evening_submitted = set(evening[evening["date"] == today]["player_name"].tolist())
+
+        checkin_col1, checkin_col2 = st.columns(2)
+
+        with checkin_col1:
+            st.markdown("### Morning Check-in Submitted")
+            st.markdown(f"""
+            <div style="font-size:32px;font-weight:800;color:#e8edf5;margin:8px 0;">
+              {len(morning_submitted)}
+              <span style="font-size:18px;color:#6b7a90;">/ {total} players</span>
+            </div>
+            """, unsafe_allow_html=True)
+            missing_morning = [n for n in roster_names if n not in morning_submitted]
+            if missing_morning:
+                with st.expander(f"Not submitted ({len(missing_morning)})"):
+                    for name in missing_morning:
+                        st.markdown(f"- {name}")
+
+        with checkin_col2:
+            st.markdown("### Evening Check-in Submitted")
+            st.markdown(f"""
+            <div style="font-size:32px;font-weight:800;color:#e8edf5;margin:8px 0;">
+              {len(evening_submitted)}
+              <span style="font-size:18px;color:#6b7a90;">/ {total} players</span>
+            </div>
+            """, unsafe_allow_html=True)
+            missing_evening = [n for n in roster_names if n not in evening_submitted]
+            if missing_evening:
+                with st.expander(f"Not submitted ({len(missing_evening)})"):
+                    for name in missing_evening:
+                        st.markdown(f"- {name}")
 
 with tab_overview:
     render_overview()
