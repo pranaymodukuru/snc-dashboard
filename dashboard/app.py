@@ -260,7 +260,9 @@ def render_overview():
 
         avail_counts = {}
         if not roster.empty and "current_status" in roster.columns:
-            sc = roster["current_status"].value_counts().to_dict()
+            # Treat empty/None status as "Full Training" (assumed available)
+            filled = roster["current_status"].replace("", "Full Training").fillna("Full Training")
+            sc = filled.value_counts().to_dict()
             for label, (color, statuses) in avail_map.items():
                 avail_counts[label] = sum(sc.get(s, 0) for s in statuses)
         else:
@@ -458,7 +460,7 @@ def render_overview():
         st.divider()
 
         # ── Wellness Completed ────────────────────────────────────────────────
-        st.markdown("### Wellness Completed")
+        st.markdown("### Wellness Check-in Submitted")
 
         submitted = set()
         if not wellness.empty:
