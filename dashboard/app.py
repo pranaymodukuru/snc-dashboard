@@ -21,6 +21,11 @@ st.set_page_config(
 DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "knights2024")
 API_URL = os.getenv("API_URL", "http://localhost:8000")
 
+# Public base URL for player-facing links (check-in forms etc.)
+# Set PUBLIC_URL in Railway dashboard env vars to the API's public domain.
+# Locally falls back to API_URL (http://localhost:8000).
+PUBLIC_URL = os.getenv("PUBLIC_URL", API_URL).rstrip("/")
+
 # ── Custom CSS ───────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
@@ -212,8 +217,8 @@ with c_logout:
 st.markdown("<hr style='border-color:#1f2530; margin: 8px 0 16px;'>", unsafe_allow_html=True)
 
 # ── Tabs ─────────────────────────────────────────────────────────────────────
-tab_overview, tab_wellness, tab_sessions, tab_bowling, tab_squad, tab_admin = st.tabs([
-    "Overview", "Wellness", "Session Load", "Bowling Load", "Squad", "Admin",
+tab_overview, tab_load, tab_squad, tab_admin, tab_raw = st.tabs([
+    "Team Overview", "Load Monitor", "Player Profiles", "Admin", "Raw Data",
 ])
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -488,234 +493,426 @@ with tab_overview:
 # ════════════════════════════════════════════════════════════════════════════
 # TAB 2 — WELLNESS
 # ════════════════════════════════════════════════════════════════════════════
-@st.fragment
-def render_wellness():
-    wellness = load_wellness()
-    today    = date.today()
-    st.subheader("Wellness Submissions")
-
-    # Interpretation legend
-    legend_html = " &nbsp;·&nbsp; ".join(
-        f'<span style="color:{color};">● {lo:.1f}–{hi:.1f} {label}</span>'
-        if lo > 0 else
-        f'<span style="color:{color};">● &lt;{hi+0.1:.1f} {label}</span>'
-        for lo, hi, label, color in WELLNESS_INTERP
-    )
-    st.markdown(
-        f'<div style="font-size:12px;margin-bottom:12px;">{legend_html}</div>',
-        unsafe_allow_html=True,
-    )
-
-    if wellness.empty:
-        st.info("No wellness data yet. Share the check-in form with your players.")
-        return
-
-    c1, c2 = st.columns([1, 2])
-    with c1:
-        player_opts = ["All"] + sorted(wellness["player_name"].dropna().unique().tolist())
-        sel_player  = st.selectbox("Player", player_opts, key="w_player")
-    with c2:
-        date_range = st.date_input(
-            "Date range",
-            value=(today - timedelta(days=14), today),
-            key="w_dates",
-        )
-
-    df_w = wellness.copy()
-    if sel_player != "All":
-        df_w = df_w[df_w["player_name"] == sel_player]
-    if isinstance(date_range, tuple) and len(date_range) == 2:
-        df_w = df_w[(df_w["date"] >= date_range[0]) & (df_w["date"] <= date_range[1])]
-    df_w = df_w.sort_values("timestamp", ascending=False)
-
-    keep_cols = ["date","player_name","sleep_quality","energy_level","body_soreness",
-                 "tightness_locations","availability_status","notes"]
-    display = df_w[[c for c in keep_cols if c in df_w.columns]].rename(columns={
-        "player_name": "Player", "sleep_quality": "Sleep", "energy_level": "Energy",
-        "body_soreness": "Soreness", "tightness_locations": "Tightness",
-        "availability_status": "Availability",
-    })
-
-    def score_bg(val, inverse=False):
-        try:
-            v = int(val)
-            if inverse:
-                if v >= 4: return "background-color: rgba(239,68,68,0.25)"
-                if v <= 2: return "background-color: rgba(34,197,94,0.25)"
-            else:
-                if v >= 4: return "background-color: rgba(34,197,94,0.25)"
-                if v <= 2: return "background-color: rgba(239,68,68,0.25)"
-            return "background-color: rgba(245,158,11,0.25)"
-        except Exception:
-            return ""
-
-    num_cols = [c for c in ["Sleep","Energy","Soreness"] if c in display.columns]
-    styled = display.style
-    if "Sleep" in display.columns or "Energy" in display.columns:
-        pos_cols = [c for c in ["Sleep","Energy"] if c in display.columns]
-        if pos_cols:
-            styled = styled.applymap(lambda v: score_bg(v, inverse=False), subset=pos_cols)
-    if "Soreness" in display.columns:
-        styled = styled.applymap(lambda v: score_bg(v, inverse=True), subset=["Soreness"])
-    st.dataframe(styled, use_container_width=True, height=480)
-
-with tab_wellness:
-    render_wellness()
-
-# ════════════════════════════════════════════════════════════════════════════
-# TAB 3 — SESSION LOAD
+# RAW DATA TAB
 # ════════════════════════════════════════════════════════════════════════════
 @st.fragment
-def render_sessions():
+def render_raw_data():
+    today   = date.today()
+
+    def _date_filter(df, section: str):
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            players = ["All"] + sorted(df["player_name"].dropna().unique().tolist()) if "player_name" in df.columns else ["All"]
+            sel = st.selectbox("Player", players, key=f"raw_player_{section}")
+        with c2:
+            dr = st.date_input("Date range", value=(today - timedelta(days=30), today), key=f"raw_dr_{section}")
+        out = df.copy()
+        if sel != "All" and "player_name" in out.columns:
+            out = out[out["player_name"] == sel]
+        if isinstance(dr, tuple) and len(dr) == 2 and "date" in out.columns:
+            out = out[(out["date"] >= dr[0]) & (out["date"] <= dr[1])]
+        return out.sort_values("timestamp", ascending=False) if "timestamp" in out.columns else out
+
+    def _export_btn(df, name):
+        if not df.empty:
+            st.download_button(f"Export {name}.csv", df.to_csv(index=False),
+                               file_name=f"{name}.csv", mime="text/csv")
+
+    # ── Morning wellness ─────────────────────────────────────────────────────
+    with st.expander("Morning Check-ins (Wellness)", expanded=True):
+        wellness = load_wellness()
+        if wellness.empty:
+            st.info("No morning check-in data yet.")
+        else:
+            df_w = _date_filter(wellness, "wellness")
+            keep = ["date","player_name","sleep_quality","energy_level","body_soreness",
+                    "tightness_locations","availability_status","notes"]
+            df_w = df_w[[c for c in keep if c in df_w.columns]].rename(columns={
+                "player_name":"Player","sleep_quality":"Sleep","energy_level":"Energy",
+                "body_soreness":"Soreness","tightness_locations":"Tightness",
+                "availability_status":"Availability",
+            })
+
+            def _bg(val, inv=False):
+                try:
+                    v = int(val)
+                    hi = "background-color:rgba(239,68,68,0.2)"
+                    lo = "background-color:rgba(34,197,94,0.2)"
+                    mid = "background-color:rgba(245,158,11,0.2)"
+                    if inv:
+                        return hi if v >= 4 else (lo if v <= 2 else mid)
+                    return lo if v >= 4 else (hi if v <= 2 else mid)
+                except: return ""
+
+            styled = df_w.style
+            for col in [c for c in ["Sleep","Energy"] if c in df_w.columns]:
+                styled = styled.applymap(lambda v: _bg(v, inv=False), subset=[col])
+            if "Soreness" in df_w.columns:
+                styled = styled.applymap(lambda v: _bg(v, inv=True), subset=["Soreness"])
+            st.dataframe(styled, use_container_width=True, height=380)
+            _export_btn(df_w, "morning_checkins")
+
+    # ── Evening check-ins ────────────────────────────────────────────────────
+    with st.expander("Evening Check-ins (Session RPE & Bowling)", expanded=False):
+        evening = load_evening()
+        if evening.empty:
+            st.info("No evening check-in data yet.")
+        else:
+            df_e = _date_filter(evening, "evening")
+            st.dataframe(df_e.drop(columns=["timestamp"], errors="ignore"),
+                         use_container_width=True, height=320)
+            _export_btn(df_e, "evening_checkins")
+
+    # ── Session load ─────────────────────────────────────────────────────────
+    with st.expander("Session Load (Coach Logged)", expanded=False):
+        sessions = load_sessions()
+        if sessions.empty:
+            st.info("No session data yet.")
+        else:
+            df_s = _date_filter(sessions, "sessions")
+            st.dataframe(
+                df_s[["date","player_name","session_type","duration_mins","rpe","load_au","notes"]]
+                  .rename(columns={"player_name":"Player","session_type":"Type",
+                                   "duration_mins":"Duration (min)","load_au":"Load (AU)"}),
+                use_container_width=True, height=320,
+            )
+            _export_btn(df_s, "sessions")
+
+    # ── Bowling load ─────────────────────────────────────────────────────────
+    with st.expander("Bowling Load (Coach Logged)", expanded=False):
+        bowling = load_bowling()
+        if bowling.empty:
+            st.info("No bowling data yet.")
+        else:
+            df_b = _date_filter(bowling, "bowling")
+            df_b = df_b.assign(total=df_b[["match_balls","net_balls","high_intensity_balls"]].fillna(0).sum(axis=1))
+            st.dataframe(
+                df_b[["date","player_name","match_balls","net_balls","high_intensity_balls","total","notes"]]
+                  .rename(columns={"player_name":"Player","match_balls":"Match","net_balls":"Net",
+                                   "high_intensity_balls":"High Int.","total":"Total"}),
+                use_container_width=True, height=320,
+            )
+            _export_btn(df_b, "bowling")
+
+    # ── Roster ───────────────────────────────────────────────────────────────
+    with st.expander("Roster", expanded=False):
+        roster = load_roster()
+        if roster.empty:
+            st.info("No roster data yet.")
+        else:
+            st.dataframe(roster, use_container_width=True, height=320)
+            _export_btn(roster, "roster")
+
+with tab_raw:
+    render_raw_data()
+
+# ════════════════════════════════════════════════════════════════════════════
+# TAB 3 — PLAYER LOAD  (session + bowling combined)
+# ════════════════════════════════════════════════════════════════════════════
+def _rpe_color(rpe: float) -> str:
+    if rpe <= 2:  return "#22c55e"
+    if rpe <= 4:  return "#00c2ff"
+    if rpe <= 6:  return "#f59e0b"
+    if rpe <= 8:  return "#ef4444"
+    return "#ff4444"
+
+def _load_color(load: float) -> str:
+    if load < 200: return "#22c55e"
+    if load < 400: return "#f59e0b"
+    return "#ef4444"
+
+def _metric_card(label: str, value: str, sub: str = "", color: str = "#e8edf5") -> str:
+    return f"""
+    <div class="metric-card">
+      <div class="metric-label">{label}</div>
+      <div class="metric-value" style="color:{color};font-size:32px;">{value}</div>
+      {"<div style='font-size:11px;color:#6b7a90;margin-top:4px;'>"+sub+"</div>" if sub else ""}
+    </div>"""
+
+@st.fragment
+def render_player_load():
     roster   = load_roster()
     sessions = load_sessions()
+    bowling  = load_bowling()
     today    = date.today()
-    st.subheader("Session RPE Load")
+    now_ts   = pd.Timestamp(today)
 
+    st.subheader("Player Load")
+
+    if roster.empty:
+        st.info("No players in roster yet — add them in the Admin tab.")
+        return
+
+    # ── Player selector ──────────────────────────────────────────────────────
+    names = roster["name"].dropna().tolist()
+    col_sel, col_log_s, col_log_b = st.columns([2, 1, 1])
+    with col_sel:
+        sel = st.selectbox("Select Player", names, key="load_player_sel", label_visibility="collapsed")
+
+    player_row = roster[roster["name"] == sel].iloc[0]
+    is_fb      = is_fast_bowler(player_row.get("is_fast_bowler"))
+
+    ps = sessions[sessions["player_name"] == sel].copy() if not sessions.empty else pd.DataFrame()
+    pb = bowling[bowling["player_name"] == sel].copy()   if not bowling.empty  else pd.DataFrame()
+
+    week_ago  = now_ts - timedelta(days=7)
+    month_ago = now_ts - timedelta(days=28)
+
+    # ── Log forms ────────────────────────────────────────────────────────────
+    with col_log_s:
+        if st.button("+ Log Session", use_container_width=True):
+            st.session_state["show_log_session"] = True
+    with col_log_b:
+        if is_fb:
+            if st.button("+ Log Bowling", use_container_width=True):
+                st.session_state["show_log_bowling"] = True
+
+    if st.session_state.get("show_log_session"):
+        with st.expander("Log Session", expanded=True):
+            c1, c2, c3, c4 = st.columns(4)
+            with c1: s_type = st.selectbox("Type", ["Training","Match","Gym","Recovery","Rehab"], key="sl_type")
+            with c2: s_dur  = st.number_input("Duration (mins)", 1, 300, 60, key="sl_dur")
+            with c3: s_rpe  = st.slider("RPE (1–10)", 1, 10, 6, key="sl_rpe")
+            with c4: s_notes= st.text_input("Notes", key="sl_notes")
+            cc1, cc2 = st.columns([1, 4])
+            with cc1:
+                if st.button("Submit", type="primary", key="sl_submit"):
+                    try:
+                        r = requests.post(f"{API_URL}/data/sessions", json={
+                            "player_name": sel, "session_type": s_type,
+                            "duration_mins": s_dur, "rpe": s_rpe, "notes": s_notes,
+                        }, timeout=5)
+                        r.raise_for_status()
+                        load_sessions.clear()
+                        st.session_state["show_log_session"] = False
+                        st.success(f"Session logged for {sel}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed: {e}")
+
+    if st.session_state.get("show_log_bowling") and is_fb:
+        with st.expander("Log Bowling", expanded=True):
+            c1, c2, c3 = st.columns(3)
+            with c1: b_match = st.number_input("Match balls",        0, 500, 0, key="bl_match")
+            with c2: b_net   = st.number_input("Net balls",          0, 500, 0, key="bl_net")
+            with c3: b_hi    = st.number_input("High intensity balls",0, 500, 0, key="bl_hi")
+            b_notes = st.text_input("Notes", key="bl_notes")
+            cc1, cc2 = st.columns([1, 4])
+            with cc1:
+                if st.button("Submit", type="primary", key="bl_submit"):
+                    try:
+                        r = requests.post(f"{API_URL}/data/bowling", json={
+                            "player_name": sel, "match_balls": b_match,
+                            "net_balls": b_net, "high_intensity_balls": b_hi, "notes": b_notes,
+                        }, timeout=5)
+                        r.raise_for_status()
+                        load_bowling.clear()
+                        st.session_state["show_log_bowling"] = False
+                        st.success(f"Bowling logged for {sel}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed: {e}")
+
+    st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # SESSION LOAD SECTION
+    # ════════════════════════════════════════════════════════════════════════
+    st.markdown("### Session Load")
+
+    # RPE legend
     rpe_html = " &nbsp;·&nbsp; ".join(
         f'<span style="color:{color};">{lo}{"–"+str(hi) if hi!=lo else ""} {label}</span>'
         for (lo, hi), (label, color) in RPE_LABELS.items()
     )
-    st.markdown(
-        f'<div style="font-size:12px;margin-bottom:12px;">{rpe_html}</div>',
-        unsafe_allow_html=True,
+    st.markdown(f'<div style="font-size:12px;margin-bottom:16px;">{rpe_html}</div>', unsafe_allow_html=True)
+
+    if ps.empty:
+        st.info(f"No session data for {sel} yet.")
+    else:
+        ps_week  = ps[ps["timestamp"] >= week_ago]
+        ps_month = ps[ps["timestamp"] >= month_ago]
+
+        sessions_this_week = len(ps_week)
+        avg_rpe_week       = round(ps_week["rpe"].mean(), 1) if not ps_week.empty else 0
+        total_load_week    = int(ps_week["load_au"].sum())
+
+        # ACWR
+        acute   = ps_week["load_au"].sum()
+        chronic = ps_month["load_au"].sum() / 4 if len(ps_month) >= 4 else ps_month["load_au"].sum()
+        acwr    = round(acute / chronic, 2) if chronic > 0 else 0.0
+        acwr_risk = "Low" if acwr < 1.3 else ("High" if acwr > 1.5 else "Moderate")
+        acwr_color = {"Low": "#22c55e", "Moderate": "#f59e0b", "High": "#ef4444"}.get(acwr_risk, "#6b7a90")
+
+        # ── Key metrics cards ────────────────────────────────────────────────
+        m1, m2, m3, m4 = st.columns(4)
+        with m1: st.markdown(_metric_card("Sessions this week", str(sessions_this_week)), unsafe_allow_html=True)
+        with m2: st.markdown(_metric_card("Avg RPE (7d)", str(avg_rpe_week), color=_rpe_color(avg_rpe_week)), unsafe_allow_html=True)
+        with m3: st.markdown(_metric_card("Total Load (7d)", f"{total_load_week} AU", color=_load_color(total_load_week)), unsafe_allow_html=True)
+        with m4: st.markdown(_metric_card("ACWR", str(acwr), sub=f"{acwr_risk} risk", color=acwr_color), unsafe_allow_html=True)
+
+        st.markdown("<div style='height:20px;'></div>", unsafe_allow_html=True)
+
+        # ── 28-day load trend ────────────────────────────────────────────────
+        if not ps_month.empty:
+            daily = ps_month.groupby("date").agg(
+                total_load=("load_au", "sum"),
+                sessions=("load_au", "count"),
+                avg_rpe=("rpe", "mean"),
+            ).reset_index()
+            daily["date_str"] = daily["date"].astype(str)
+            daily["color"] = daily["total_load"].apply(_load_color)
+
+            fig_load = go.Figure()
+            for _, row in daily.iterrows():
+                fig_load.add_trace(go.Bar(
+                    x=[row["date_str"]], y=[row["total_load"]],
+                    marker_color=row["color"], name="", showlegend=False,
+                    hovertemplate=f"<b>{row['date_str']}</b><br>Load: {int(row['total_load'])} AU<br>Sessions: {int(row['sessions'])}<br>Avg RPE: {row['avg_rpe']:.1f}<extra></extra>",
+                ))
+            fig_load.update_layout(
+                **{**DARK_LAYOUT, "margin": dict(t=16, b=24, l=8, r=8)},
+                height=220, barmode="stack", bargap=0.15,
+                title=dict(text="28-Day Load Trend (AU)", font=dict(size=13), x=0),
+                xaxis=dict(gridcolor="#1f2530"),
+                yaxis=dict(gridcolor="#1f2530", title="Load (AU)"),
+            )
+            st.plotly_chart(fig_load, use_container_width=True, key=f"load_trend_{sel}")
+
+        # ── Session breakdown + RPE distribution ─────────────────────────────
+        col_type, col_rpe = st.columns(2)
+
+        with col_type:
+            type_counts = ps["session_type"].value_counts()
+            type_colors = {
+                "Training": "#00c2ff", "Match": "#f59e0b",
+                "Gym": "#22c55e", "Recovery": "#6b7a90", "Rehab": "#ef4444",
+            }
+            fig_type = go.Figure(go.Pie(
+                labels=type_counts.index.tolist(),
+                values=type_counts.values.tolist(),
+                marker=dict(colors=[type_colors.get(t, "#6b7a90") for t in type_counts.index]),
+                hole=0.5,
+                hovertemplate="%{label}: %{value} sessions (%{percent})<extra></extra>",
+            ))
+            fig_type.update_layout(
+                **{**DARK_LAYOUT, "margin": dict(t=32, b=8, l=8, r=8)},
+                height=220, showlegend=True,
+                title=dict(text="Session Type Breakdown", font=dict(size=13), x=0),
+                legend=dict(orientation="v", font=dict(size=11)),
+            )
+            st.plotly_chart(fig_type, use_container_width=True, key=f"type_pie_{sel}")
+
+        with col_rpe:
+            rpe_counts = ps["rpe"].value_counts().sort_index()
+            fig_rpe = go.Figure(go.Bar(
+                x=rpe_counts.index.tolist(),
+                y=rpe_counts.values.tolist(),
+                marker_color=[_rpe_color(v) for v in rpe_counts.index],
+                hovertemplate="RPE %{x}: %{y} sessions<extra></extra>",
+            ))
+            fig_rpe.update_layout(
+                **{**DARK_LAYOUT, "margin": dict(t=32, b=8, l=8, r=8)},
+                height=220,
+                title=dict(text="RPE Distribution", font=dict(size=13), x=0),
+                xaxis=dict(tickvals=list(range(1,11)), gridcolor="#1f2530", title="RPE"),
+                yaxis=dict(gridcolor="#1f2530", title="Sessions"),
+            )
+            st.plotly_chart(fig_rpe, use_container_width=True, key=f"rpe_dist_{sel}")
+
+        # ── Recent sessions table ─────────────────────────────────────────────
+        with st.expander("Recent Sessions", expanded=False):
+            display_s = ps.sort_values("timestamp", ascending=False).head(20)[
+                ["date","session_type","duration_mins","rpe","load_au","notes"]
+            ].rename(columns={
+                "date": "Date", "session_type": "Type", "duration_mins": "Duration (min)",
+                "rpe": "RPE", "load_au": "Load (AU)", "notes": "Notes",
+            })
+            def rpe_style(val):
+                try: return f"color:{_rpe_color(float(val))}"
+                except: return ""
+            st.dataframe(display_s.style.applymap(rpe_style, subset=["RPE"]),
+                         use_container_width=True, height=320)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # BOWLING LOAD SECTION  (fast bowlers only)
+    # ════════════════════════════════════════════════════════════════════════
+    if not is_fb:
+        return
+
+    st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+    st.divider()
+    st.markdown("### Bowling Load")
+
+    if pb.empty:
+        st.info(f"No bowling data for {sel} yet.")
+        return
+
+    pb = pb.assign(
+        total_balls=pb[["match_balls","net_balls","high_intensity_balls"]].fillna(0).sum(axis=1)
     )
 
-    with st.expander("+ Log Session", expanded=sessions.empty):
-        c1, c2, c3, c4 = st.columns(4)
-        player_list = roster["name"].tolist() if not roster.empty else []
-        with c1:
-            s_player = st.selectbox("Player", player_list, key="s_player")
-        with c2:
-            s_type = st.selectbox("Session Type", ["Training","Match","Gym","Recovery","Rehab"], key="s_type")
-        with c3:
-            s_dur = st.number_input("Duration (mins)", 1, 300, 60, key="s_dur")
-        with c4:
-            s_rpe = st.slider("RPE (1–10)", 1, 10, 6, key="s_rpe")
-        s_notes = st.text_input("Notes", key="s_notes")
-        if st.button("Log Session", type="primary"):
-            try:
-                r = requests.post(f"{API_URL}/data/sessions", json={
-                    "player_name": s_player, "session_type": s_type,
-                    "duration_mins": s_dur, "rpe": s_rpe, "notes": s_notes,
-                }, timeout=5)
-                r.raise_for_status()
-                load_sessions.clear()
-                st.success(f"Session logged for {s_player}")
-                sessions = load_sessions()
-            except Exception as e:
-                st.error(f"Failed to log session: {e}")
+    pb_week  = pb[pb["timestamp"] >= week_ago]
+    pb_month = pb[pb["timestamp"] >= month_ago]
 
-    if not sessions.empty:
-        cutoff = pd.Timestamp(today - timedelta(days=28))
-        df_s   = sessions[sessions["timestamp"] >= cutoff].copy()
-        if not df_s.empty:
-            daily = df_s.groupby("date")["load_au"].mean().reset_index()
-            daily.columns = ["date", "avg_load"]
-            fig = px.bar(
-                daily, x="date", y="avg_load",
-                labels={"date": "Date", "avg_load": "Team Avg Load (AU)"},
-                color="avg_load",
-                color_continuous_scale=[[0,"#22c55e"],[0.55,"#f59e0b"],[1,"#ef4444"]],
-            )
-            fig.update_layout(**DARK_LAYOUT, height=280, coloraxis_showscale=False)
-            fig.update_xaxes(gridcolor="#1f2530")
-            fig.update_yaxes(gridcolor="#1f2530")
-            st.plotly_chart(fig, use_container_width=True)
+    weekly_balls   = int(pb_week["total_balls"].sum())
+    acute_b        = float(pb_week["total_balls"].sum())
+    chronic_b      = float(pb_month["total_balls"].sum()) / 4 if len(pb_month) >= 4 else float(pb_month["total_balls"].sum())
+    acwr_b         = round(acute_b / chronic_b, 2) if chronic_b > 0 else 0.0
+    acwr_b_risk    = "Low" if acwr_b < 1.3 else ("High" if acwr_b > 1.5 else "Moderate")
+    acwr_b_color   = {"Low": "#22c55e", "Moderate": "#f59e0b", "High": "#ef4444"}.get(acwr_b_risk, "#6b7a90")
 
-        bowlers = fast_bowlers(roster)
-        if bowlers:
-            st.markdown("**ACWR — Fast Bowlers**")
-            now       = pd.Timestamp(today)
-            acwr_rows = []
-            for player in bowlers:
-                ps = sessions[sessions["player_name"] == player]
-                if ps.empty:
-                    continue
-                acute   = ps[ps["timestamp"] >= now - timedelta(days=7)]["load_au"].sum()
-                chronic = ps[ps["timestamp"] >= now - timedelta(days=28)]["load_au"].sum() / 4
-                acwr    = round(acute / chronic, 2) if chronic > 0 else 0.0
-                risk    = "Low" if acwr < 1.3 else ("High" if acwr > 1.5 else "Moderate")
-                acwr_rows.append({
-                    "Player": player, "Acute 7d (AU)": int(acute),
-                    "Chronic avg (AU)": int(chronic), "ACWR": acwr, "Risk": risk,
-                })
-            if acwr_rows:
-                df_acwr = pd.DataFrame(acwr_rows)
-                def risk_color(val):
-                    return {"Low":"color:#22c55e","Moderate":"color:#f59e0b","High":"color:#ef4444"}.get(val,"")
-                st.dataframe(df_acwr.style.applymap(risk_color, subset=["Risk"]), use_container_width=True)
-    else:
-        st.info("No session data yet. Use the form above to log sessions.")
+    # Bowling status band from overview thresholds
+    bowl_label, bowl_color = bowler_status_band(weekly_balls)
 
-with tab_sessions:
-    render_sessions()
+    b1, b2, b3 = st.columns(3)
+    with b1: st.markdown(_metric_card("Weekly Balls (7d)", str(weekly_balls), color=bowl_color), unsafe_allow_html=True)
+    with b2: st.markdown(_metric_card("4-Week Avg (balls/wk)", str(int(chronic_b)), color="#6b7a90"), unsafe_allow_html=True)
+    with b3: st.markdown(_metric_card("Bowling ACWR", str(acwr_b), sub=f"{acwr_b_risk} risk", color=acwr_b_color), unsafe_allow_html=True)
 
-# ════════════════════════════════════════════════════════════════════════════
-# TAB 4 — BOWLING LOAD
-# ════════════════════════════════════════════════════════════════════════════
-@st.fragment
-def render_bowling():
-    roster  = load_roster()
-    bowling = load_bowling()
-    today   = date.today()
-    st.subheader("Bowling Load — Fast Bowlers")
+    st.markdown("<div style='height:20px;'></div>", unsafe_allow_html=True)
 
-    bowlers = fast_bowlers(roster)
+    # ── Stacked bar: balls by type over 4 weeks ──────────────────────────────
+    if not pb_month.empty:
+        pb_month_copy = pb_month.copy()
+        pb_month_copy["week"] = pb_month_copy["timestamp"].dt.to_period("W").astype(str)
+        weekly_by_type = pb_month_copy.groupby("week")[["match_balls","net_balls","high_intensity_balls"]].sum().reset_index()
 
-    with st.expander("+ Log Bowling Session", expanded=bowling.empty):
-        c1, c2, c3, c4 = st.columns(4)
-        bowl_opts = bowlers if bowlers else (roster["name"].tolist() if not roster.empty else [])
-        with c1:
-            b_player = st.selectbox("Bowler", bowl_opts, key="b_player")
-        with c2:
-            b_match = st.number_input("Match balls", 0, 500, 0, key="b_match")
-        with c3:
-            b_net = st.number_input("Net balls", 0, 500, 0, key="b_net")
-        with c4:
-            b_hi = st.number_input("High intensity", 0, 500, 0, key="b_hi")
-        b_notes = st.text_input("Notes", key="b_notes")
-        if st.button("Log Bowling", type="primary"):
-            try:
-                r = requests.post(f"{API_URL}/data/bowling", json={
-                    "player_name": b_player, "match_balls": b_match,
-                    "net_balls": b_net, "high_intensity_balls": b_hi, "notes": b_notes,
-                }, timeout=5)
-                r.raise_for_status()
-                load_bowling.clear()
-                st.success(f"Bowling session logged for {b_player}")
-                bowling = load_bowling()
-            except Exception as e:
-                st.error(f"Failed to log bowling: {e}")
-
-    if not bowling.empty:
-        df_b = bowling.copy()
-        df_b = df_b.assign(total_balls=df_b[["match_balls","net_balls","high_intensity_balls"]].fillna(0).sum(axis=1))
-        if bowlers:
-            cutoff = pd.Timestamp(today - timedelta(days=7))
-            recent = df_b[df_b["timestamp"] >= cutoff].groupby("player_name")["total_balls"].sum().reset_index()
-            recent.columns = ["Player", "Total balls (7d)"]
-            fig = px.bar(
-                recent, x="Player", y="Total balls (7d)",
-                color="Total balls (7d)",
-                color_continuous_scale=[[0,"#22c55e"],[0.6,"#f59e0b"],[1,"#ef4444"]],
-            )
-            fig.update_layout(**DARK_LAYOUT, height=260, coloraxis_showscale=False, showlegend=False)
-            fig.update_xaxes(gridcolor="#1f2530")
-            fig.update_yaxes(gridcolor="#1f2530")
-            st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(
-            df_b[["date","player_name","match_balls","net_balls","high_intensity_balls","total_balls","notes"]]
-              .sort_values("date", ascending=False)
-              .rename(columns={"player_name":"Player","match_balls":"Match","net_balls":"Net",
-                               "high_intensity_balls":"High Int.","total_balls":"Total","notes":"Notes"}),
-            use_container_width=True, height=380,
+        fig_bowl = go.Figure()
+        ball_types = [
+            ("match_balls",          "Match",          "#f59e0b"),
+            ("net_balls",            "Net",             "#00c2ff"),
+            ("high_intensity_balls", "High Intensity",  "#ef4444"),
+        ]
+        for col, label, color in ball_types:
+            if col in weekly_by_type.columns:
+                fig_bowl.add_trace(go.Bar(
+                    x=weekly_by_type["week"], y=weekly_by_type[col],
+                    name=label, marker_color=color,
+                    hovertemplate=f"{label}: %{{y}} balls<extra></extra>",
+                ))
+        fig_bowl.update_layout(
+            **{**DARK_LAYOUT, "margin": dict(t=32, b=24, l=8, r=8)},
+            height=240, barmode="stack",
+            title=dict(text="Weekly Bowling Volume by Type (last 4 weeks)", font=dict(size=13), x=0),
+            xaxis=dict(gridcolor="#1f2530", title="Week"),
+            yaxis=dict(gridcolor="#1f2530", title="Balls"),
+            legend=dict(orientation="h", y=-0.25),
         )
-    else:
-        st.info("No bowling data yet.")
+        st.plotly_chart(fig_bowl, use_container_width=True, key=f"bowl_stack_{sel}")
 
-with tab_bowling:
-    render_bowling()
+    # ── Recent bowling table ──────────────────────────────────────────────────
+    with st.expander("Recent Bowling Sessions", expanded=False):
+        display_b = pb.sort_values("timestamp", ascending=False).head(20)[
+            ["date","match_balls","net_balls","high_intensity_balls","total_balls","notes"]
+        ].rename(columns={
+            "date": "Date", "match_balls": "Match", "net_balls": "Net",
+            "high_intensity_balls": "High Int.", "total_balls": "Total", "notes": "Notes",
+        })
+        st.dataframe(display_b, use_container_width=True, height=300)
+
+with tab_load:
+    render_player_load()
 
 # ════════════════════════════════════════════════════════════════════════════
 # TAB 5 — SQUAD
@@ -724,83 +921,191 @@ with tab_bowling:
 def render_squad():
     roster   = load_roster()
     wellness = load_wellness()
-    st.subheader("Squad")
+    today    = date.today()
 
     if roster.empty:
         st.info("No players yet — add them in the Admin tab.")
         return
 
-    for _, player in roster.iterrows():
-        status = player.get("current_status", "Unknown")
-        color  = STATUS_COLORS.get(status, "#6b7a90")
-        role   = player.get("role", "?")
-        with st.expander(f"{player['name']}  —  {role}  |  {status}"):
-            c_info, c_radar = st.columns([1, 2])
-            with c_info:
-                age_val = player.get('age')
-                age_str = str(int(age_val)) if pd.notna(age_val) and age_val != '' else '—'
+    def _f(val):
+        return str(val) if pd.notna(val) and str(val).strip() else "—"
 
-                def _f(val): return str(val) if pd.notna(val) and str(val).strip() else "—"
+    names = roster["name"].dropna().tolist()
+    selected_name = st.selectbox("Select Player", names, key="squad_player_select")
 
-                st.markdown(f"**Name:** {_f(player.get('name'))}")
-                st.markdown(f"**Age:** {age_str}")
-                st.markdown(f"**Role:** {_f(player.get('role'))}")
-                st.markdown(f"**Batting Style:** {_f(player.get('batting_style'))}")
-                st.markdown(f"**Bowling Style:** {_f(player.get('bowling_style'))}")
-                st.markdown(f"**Dominant Side:** {_f(player.get('dominant_side'))}")
-                st.markdown(f"**Fast Bowler:** {'Yes' if is_fast_bowler(player.get('is_fast_bowler')) else 'No'}")
-                st.markdown(f"**Contact:** {_f(player.get('contact'))}")
-                ih = player.get("injury_history")
-                if pd.notna(ih) and str(ih).strip():
-                    st.markdown(f"**Injury History:** {ih}")
-                sn = player.get("status_notes")
-                if pd.notna(sn) and str(sn).strip():
-                    st.markdown(f"**Status Notes:** {sn}")
+    player = roster[roster["name"] == selected_name].iloc[0]
+    pw = pd.DataFrame()
+    if not wellness.empty:
+        pw = wellness[wellness["player_name"] == selected_name].sort_values("timestamp")
 
-                # Latest player-reported availability from morning checkin
-                if not wellness.empty:
-                    pw = wellness[wellness["player_name"] == player["name"]].sort_values("timestamp")
-                    if not pw.empty:
-                        last_avail = pw.iloc[-1].get("availability_status", "")
-                        if last_avail and pd.notna(last_avail):
-                            st.markdown(f"**Self-reported:** {last_avail}")
-            with c_radar:
-                if not wellness.empty:
-                    pw = wellness[wellness["player_name"] == player["name"]].sort_values("timestamp")
-                    if not pw.empty:
-                        last     = pw.iloc[-1]
-                        r_labels = ["Sleep","Energy","Soreness*","Mood","Stress*"]
-                        r_vals   = [
-                            float(last.get("sleep_quality", 3) or 3),
-                            float(last.get("energy_level",  3) or 3),
-                            float(last.get("body_soreness", 3) or 3),
-                            float(last.get("mood",          3) or 3),
-                            float(last.get("stress_level",  3) or 3),
-                        ]
-                        fig = go.Figure(go.Scatterpolar(
-                            r=r_vals + [r_vals[0]],
-                            theta=r_labels + [r_labels[0]],
-                            fill="toself",
-                            fillcolor="rgba(0,194,255,0.12)",
-                            line=dict(color="#00c2ff", width=2),
-                        ))
-                        fig.update_layout(
-                            polar=dict(
-                                radialaxis=dict(visible=True, range=[0,5], color="#6b7a90", tickfont=dict(size=9)),
-                                angularaxis=dict(color="#6b7a90"),
-                                bgcolor="#111318",
-                            ),
-                            paper_bgcolor="#161a22",
-                            font=dict(color="#e8edf5"),
-                            height=240, margin=dict(t=16, b=16, l=16, r=16),
-                            showlegend=False,
-                        )
-                        st.plotly_chart(fig, use_container_width=True, key=f"radar_{player['name']}")
-                        st.caption(f"Last submission: {last['date']}")
-                    else:
-                        st.info("No wellness data for this player.")
-                else:
-                    st.info("No wellness data yet.")
+    status = player.get("current_status", "")
+    status_color = STATUS_COLORS.get(status, "#6b7a90")
+    age_val = player.get("age")
+    age_str = str(int(age_val)) if pd.notna(age_val) and age_val != "" else "—"
+
+    # ── Status banner ────────────────────────────────────────────────────────
+    st.markdown(f"""
+    <div style="background:{status_color}18;border:1px solid {status_color}44;border-radius:10px;
+                padding:12px 20px;margin:12px 0 20px;display:flex;align-items:center;gap:12px;">
+      <div style="width:12px;height:12px;border-radius:50%;background:{status_color};flex-shrink:0;"></div>
+      <span style="font-size:15px;font-weight:600;color:{status_color};">{status or 'No status set'}</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Profile + Radar ──────────────────────────────────────────────────────
+    col_profile, col_radar = st.columns([1, 1], gap="large")
+
+    with col_profile:
+        st.markdown("#### Player Profile")
+
+        def info_row(label, value, color=None):
+            val_style = f"color:{color};" if color else ""
+            st.markdown(f"""
+            <div style="display:flex;justify-content:space-between;padding:8px 0;
+                        border-bottom:1px solid #1f2530;font-size:14px;">
+              <span style="color:#6b7a90;">{label}</span>
+              <span style="font-weight:500;{val_style}">{value}</span>
+            </div>""", unsafe_allow_html=True)
+
+        info_row("Name",          _f(player.get("name")))
+        info_row("Age",           age_str)
+        info_row("Role",          _f(player.get("role")))
+        info_row("Batting Style", _f(player.get("batting_style")))
+        info_row("Bowling Style", _f(player.get("bowling_style")))
+        info_row("Dominant Side", _f(player.get("dominant_side")))
+        info_row("Fast Bowler",   "Yes" if is_fast_bowler(player.get("is_fast_bowler")) else "No")
+        info_row("Contact",       _f(player.get("contact")))
+
+        ih = player.get("injury_history")
+        if pd.notna(ih) and str(ih).strip():
+            st.markdown("<div style='margin-top:12px;font-size:13px;color:#6b7a90;'>Injury History</div>",
+                        unsafe_allow_html=True)
+            st.markdown(f"<div style='font-size:13px;padding:6px 0;'>{ih}</div>", unsafe_allow_html=True)
+
+        sn = player.get("status_notes")
+        if pd.notna(sn) and str(sn).strip():
+            st.markdown("<div style='margin-top:8px;font-size:13px;color:#6b7a90;'>Status Notes</div>",
+                        unsafe_allow_html=True)
+            st.markdown(f"<div style='font-size:13px;padding:6px 0;'>{sn}</div>", unsafe_allow_html=True)
+
+        if not pw.empty:
+            last_avail = pw.iloc[-1].get("availability_status", "")
+            if last_avail and pd.notna(last_avail):
+                avail_color = "#22c55e" if last_avail == "Available" else (
+                    "#f59e0b" if "Modified" in last_avail or "Recovery" in last_avail else "#ef4444"
+                )
+                st.markdown("<div style='margin-top:8px;font-size:13px;color:#6b7a90;'>Self-reported (latest)</div>",
+                            unsafe_allow_html=True)
+                st.markdown(f"<div style='font-size:13px;padding:6px 0;color:{avail_color};font-weight:600;'>{last_avail}</div>",
+                            unsafe_allow_html=True)
+
+    with col_radar:
+        st.markdown("#### Latest Wellness")
+        if not pw.empty:
+            last = pw.iloc[-1]
+            sleep    = float(last.get("sleep_quality", 3) or 3)
+            energy   = float(last.get("energy_level",  3) or 3)
+            soreness = float(last.get("body_soreness", 3) or 3)
+            readiness_sc = int(sleep + energy + (6 - soreness))
+            band, band_color = readiness_band(readiness_sc)
+
+            # Readiness score pill
+            st.markdown(f"""
+            <div style="text-align:center;margin-bottom:16px;">
+              <div style="font-size:11px;color:#6b7a90;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">
+                Readiness Score
+              </div>
+              <div style="font-size:52px;font-weight:800;color:{band_color};line-height:1;">{readiness_sc}</div>
+              <div style="font-size:13px;color:{band_color};margin-top:2px;">{band} &nbsp;/ 15</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            r_labels = ["Sleep", "Energy", "Soreness"]
+            r_vals   = [sleep, energy, soreness]
+            fig_radar = go.Figure(go.Scatterpolar(
+                r=r_vals + [r_vals[0]],
+                theta=r_labels + [r_labels[0]],
+                fill="toself",
+                fillcolor=f"rgba({','.join(str(int(band_color.lstrip('#')[i:i+2], 16)) for i in (0,2,4))},0.12)",
+                line=dict(color=band_color, width=2),
+            ))
+            fig_radar.update_layout(
+                polar=dict(
+                    radialaxis=dict(visible=True, range=[0,5], color="#6b7a90", tickfont=dict(size=9)),
+                    angularaxis=dict(color="#6b7a90"),
+                    bgcolor="#111318",
+                ),
+                paper_bgcolor="#161a22",
+                font=dict(color="#e8edf5"),
+                height=220, margin=dict(t=8, b=8, l=8, r=8),
+                showlegend=False,
+            )
+            st.plotly_chart(fig_radar, use_container_width=True, key=f"radar_{selected_name}")
+            st.caption(f"Last submission: {last['date']}")
+        else:
+            st.info("No wellness submissions yet.")
+
+    # ── 7-day wellness trend ─────────────────────────────────────────────────
+    st.markdown("#### 7-Day Wellness Trend")
+    if not pw.empty:
+        cutoff = pd.Timestamp(today) - timedelta(days=6)
+        trend = pw[pw["timestamp"] >= cutoff].copy()
+        if not trend.empty:
+            trend["readiness"] = (
+                trend["sleep_quality"].fillna(3) +
+                trend["energy_level"].fillna(3) +
+                (6 - trend["body_soreness"].fillna(3))
+            )
+            trend["date_str"] = trend["date"].astype(str)
+            fig_trend = go.Figure()
+            metrics = [
+                ("sleep_quality", "Sleep",    "#00c2ff"),
+                ("energy_level",  "Energy",   "#22c55e"),
+                ("body_soreness", "Soreness", "#f59e0b"),
+            ]
+            for col, label, color in metrics:
+                if col in trend.columns:
+                    fig_trend.add_trace(go.Scatter(
+                        x=trend["date_str"], y=trend[col],
+                        name=label, line=dict(color=color, width=2),
+                        mode="lines+markers", marker=dict(size=6),
+                        connectgaps=False,
+                    ))
+            fig_trend.update_layout(
+                **{**DARK_LAYOUT, "margin": dict(t=16, b=24, l=8, r=8)},
+                height=240,
+                yaxis=dict(range=[0.5, 5.5], tickvals=[1,2,3,4,5], gridcolor="#1f2530"),
+                xaxis=dict(gridcolor="#1f2530"),
+                legend=dict(orientation="h", y=-0.2),
+            )
+            st.plotly_chart(fig_trend, use_container_width=True, key=f"trend_{selected_name}")
+
+            # Readiness score trend
+            st.markdown("#### Readiness Score (last 7 days)")
+            fig_rs = go.Figure()
+            fig_rs.add_hrect(y0=13, y1=15, fillcolor="#22c55e", opacity=0.07, line_width=0)
+            fig_rs.add_hrect(y0=10, y1=12, fillcolor="#f59e0b", opacity=0.07, line_width=0)
+            fig_rs.add_hrect(y0=0,  y1=9,  fillcolor="#ef4444", opacity=0.07, line_width=0)
+            fig_rs.add_trace(go.Scatter(
+                x=trend["date_str"], y=trend["readiness"],
+                line=dict(color="#00c2ff", width=2),
+                mode="lines+markers", marker=dict(size=7),
+                name="Readiness",
+            ))
+            fig_rs.update_layout(
+                **{**DARK_LAYOUT, "margin": dict(t=16, b=24, l=8, r=8)},
+                height=200,
+                yaxis=dict(range=[0, 16], gridcolor="#1f2530",
+                           tickvals=[0, 10, 13, 15],
+                           ticktext=["0","10 (Yellow)","13 (Green)","15"]),
+                xaxis=dict(gridcolor="#1f2530"),
+                showlegend=False,
+            )
+            st.plotly_chart(fig_rs, use_container_width=True, key=f"rs_{selected_name}")
+        else:
+            st.info("No wellness data in the last 7 days.")
+    else:
+        st.info("No wellness data for this player.")
 
 with tab_squad:
     render_squad()
@@ -859,7 +1164,7 @@ def render_admin_tab():
     # ── Player Check-in Links ────────────────────────────────────────────────
     with st.expander("Player Check-in Links"):
         st.caption("Share each player's personal link — they land directly on their Morning/Evening choice.")
-        base_url = API_URL.rstrip("/")
+        base_url = PUBLIC_URL
         if not current_roster.empty:
             names = [n for n in current_roster["name"].dropna().tolist() if str(n).strip()]
             for name in names:
