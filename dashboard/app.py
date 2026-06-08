@@ -253,22 +253,28 @@ def render_overview():
         st.markdown("### Team Availability")
 
         avail_map = {
-            "Fully Available": ("#22c55e", ["Full Training"]),
-            "Modified":        ("#00c2ff", ["Modified", "Recovery"]),
-            "Rehab":           ("#f97316", ["Rehab", "Unavailable"]),
+            "Fully Available": ("#22c55e", ["Available"]),
+            "Modified":        ("#00c2ff", ["Modified Training"]),
+            "Rehab":           ("#f97316", ["Rehab"]),
+            "Not Submitted":   ("#6b7a90", []),
         }
 
-        avail_counts = {}
-        if not roster.empty and "current_status" in roster.columns:
-            # Treat empty/None status as "Full Training" (assumed available)
-            filled = roster["current_status"].replace("", "Full Training").fillna("Full Training")
-            sc = filled.value_counts().to_dict()
-            for label, (color, statuses) in avail_map.items():
-                avail_counts[label] = sum(sc.get(s, 0) for s in statuses)
-        else:
-            avail_counts = {k: 0 for k in avail_map}
+        avail_counts = {k: 0 for k in avail_map}
+        total_players = len(roster) if not roster.empty else 0
 
-        total_players = sum(avail_counts.values())
+        if not wellness.empty and "date" in wellness.columns:
+            today_w = wellness[wellness["date"] == today]
+            if not today_w.empty:
+                latest = today_w.sort_values("timestamp").groupby("player_name").last()
+                sc = latest["availability_status"].fillna("Available").value_counts().to_dict()
+                for label, (color, statuses) in avail_map.items():
+                    avail_counts[label] = sum(sc.get(s, 0) for s in statuses)
+                submitted_count = sum(avail_counts[l] for l in avail_map if l != "Not Submitted")
+                avail_counts["Not Submitted"] = max(0, total_players - submitted_count)
+            else:
+                avail_counts["Not Submitted"] = total_players
+        else:
+            avail_counts["Not Submitted"] = total_players
 
         pie_labels  = list(avail_counts.keys())
         pie_values  = list(avail_counts.values())
