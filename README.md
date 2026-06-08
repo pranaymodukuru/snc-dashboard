@@ -4,6 +4,57 @@ A cricket team strength & conditioning dashboard built with FastAPI + Streamlit,
 
 ---
 
+## Dashboard Panels
+
+The dashboard is split into five tabs:
+
+### Team Overview
+A coach-at-a-glance view updated in real time.
+
+| Panel | What it shows |
+|-------|---------------|
+| **Team Availability** | Donut chart: how many players are Fully Available, Modified, Rehab, or haven't submitted today's check-in |
+| **Fast Bowlers Status** | Table of fast bowlers — bowling days in the last 7 days and dominant intensity (Low / Moderate / High) |
+| **Readiness Scores** | Three metric cards (Green / Yellow / Red) counting players by readiness band for a selected date. Score = Sleep + Energy + (6 − Soreness), max 15; Green ≥ 13, Yellow 10–12, Red < 10 |
+| **Top Concerns** | Up to 5 players flagged today for tightness, low sleep/energy, high soreness, or a non-available self-report |
+| **Wellness Check-in Submitted** | Count of today's submissions vs squad size, with a dropdown listing who hasn't submitted yet |
+
+### Load Monitor
+Per-player training load analysis. Select a player from the dropdown.
+
+| Panel | What it shows |
+|-------|---------------|
+| **Session Load metrics** | Cards for sessions this week, 7-day avg RPE, 7-day total load (AU = duration × RPE), and ACWR with Low/Moderate/High injury-risk label |
+| **28-Day Load Trend** | Bar chart of daily load in AU, color-coded green (< 200) / amber (200–400) / red (> 400) |
+| **Session Type Breakdown** | Donut chart splitting sessions across Training, Match, Gym, Recovery, Rehab |
+| **RPE Distribution** | Bar chart of how often each RPE value (1–10) has been logged |
+| **Bowling Load** *(fast bowlers only)* | Bowling days and dominant intensity this week, plus a 28-day intensity timeline (Low / Moderate / High) |
+
+### Player Profiles
+Full profile card for a selected player.
+
+| Panel | What it shows |
+|-------|---------------|
+| **Status banner** | Color-coded pill: Full Training / Modified / Recovery / Rehab / Unavailable |
+| **Player Profile** | Age, role, batting/bowling style, dominant side, fast-bowler flag, contact, injury history, status notes |
+| **Latest Wellness** | Readiness score out of 15 and a radar chart (Sleep, Energy, Soreness) from the most recent check-in |
+| **7-Day Wellness Trend** | Line chart of daily Sleep, Energy, and Soreness values over the last 7 days |
+| **Readiness Score Trend** | Line chart of the composite readiness score with Green/Yellow/Red background bands |
+
+### Admin
+Roster and data management (coach only).
+
+| Panel | What it shows |
+|-------|---------------|
+| **Roster Management** | Editable table — add/edit players (name, role, styles, age, status, injury history) |
+| **Player Check-in Links** | Pre-built personal check-in URLs to share with each player |
+| **Export Data** | CSV download buttons for wellness, sessions, evening check-ins, and roster |
+
+### Raw Data
+Filterable, exportable tables for every data source: Morning Check-ins, Evening Check-ins, Session Load, Bowling Check-ins, and Roster.
+
+---
+
 ## Architecture
 
 ```

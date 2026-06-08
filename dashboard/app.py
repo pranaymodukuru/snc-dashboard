@@ -253,9 +253,11 @@ def render_overview():
         st.markdown("### Team Availability")
 
         avail_map = {
-            "Fully Available": ("#22c55e", ["Available"]),
-            "Modified":        ("#00c2ff", ["Modified Training"]),
+            "Available":       ("#22c55e", ["Available"]),
+            "Modified Training": ("#00c2ff", ["Modified Training"]),
+            "Recovery Only":   ("#f59e0b", ["Recovery Only"]),
             "Rehab":           ("#f97316", ["Rehab"]),
+            "Unavailable":     ("#ef4444", ["Unavailable"]),
             "Not Submitted":   ("#6b7a90", []),
         }
 
