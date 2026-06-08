@@ -31,7 +31,6 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 WELLNESS_CSV = DATA_DIR / "wellness.csv"
 ROSTER_CSV   = DATA_DIR / "roster.csv"
 SESSIONS_CSV = DATA_DIR / "sessions.csv"
-BOWLING_CSV  = DATA_DIR / "bowling.csv"
 EVENING_CSV  = DATA_DIR / "evening_checkin.csv"
 
 WELLNESS_COLS = [
@@ -46,7 +45,6 @@ ROSTER_COLS = [
     "injury_history", "current_status", "status_notes",
 ]
 SESSIONS_COLS = ["timestamp", "player_name", "session_type", "duration_mins", "rpe", "notes"]
-BOWLING_COLS  = ["timestamp", "player_name", "match_balls", "net_balls", "high_intensity_balls", "notes"]
 EVENING_COLS  = [
     "timestamp", "player_name", "session_rpe",
     "did_bowl", "bowling_volume", "bowling_intensity",
@@ -115,14 +113,6 @@ class SessionSubmission(BaseModel):
     session_type: str
     duration_mins: int
     rpe: int
-    notes: Optional[str] = ""
-
-
-class BowlingSubmission(BaseModel):
-    player_name: str
-    match_balls: int = 0
-    net_balls: int = 0
-    high_intensity_balls: int = 0
     notes: Optional[str] = ""
 
 
@@ -208,12 +198,6 @@ async def get_sessions():
     return df_to_json_response(pd.read_csv(SESSIONS_CSV))
 
 
-@app.get("/data/bowling")
-async def get_bowling():
-    ensure_csv(BOWLING_CSV, BOWLING_COLS)
-    return df_to_json_response(pd.read_csv(BOWLING_CSV))
-
-
 @app.get("/data/evening")
 async def get_evening():
     ensure_csv(EVENING_CSV, EVENING_COLS)
@@ -227,14 +211,6 @@ async def post_session(data: SessionSubmission):
     row = data.model_dump()
     row["timestamp"] = datetime.now().isoformat()
     append_row(SESSIONS_CSV, SESSIONS_COLS, row)
-    return {"status": "ok"}
-
-
-@app.post("/data/bowling")
-async def post_bowling(data: BowlingSubmission):
-    row = data.model_dump()
-    row["timestamp"] = datetime.now().isoformat()
-    append_row(BOWLING_CSV, BOWLING_COLS, row)
     return {"status": "ok"}
 
 
