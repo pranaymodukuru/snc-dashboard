@@ -91,7 +91,6 @@ ROSTER_COLS   = [
     "injury_history","current_status","status_notes",
 ]
 SESSIONS_COLS = ["timestamp","player_name","session_type","duration_mins","rpe","notes"]
-BOWLING_COLS  = ["timestamp","player_name","match_balls","net_balls","high_intensity_balls","notes"]
 EVENING_COLS  = ["timestamp","player_name","session_rpe","did_bowl","bowling_volume","bowling_intensity"]
 
 RPE_LABELS = {
@@ -184,14 +183,6 @@ def load_sessions() -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=30)
-def load_bowling() -> pd.DataFrame:
-    df = pd.DataFrame(_api_get("/data/bowling"), columns=BOWLING_COLS)
-    if not df.empty:
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
-        df["date"] = df["timestamp"].dt.date
-    return df
-
 def is_fast_bowler(val) -> bool:
     return str(val).lower().strip() in ("true", "1", "yes")
 
@@ -231,11 +222,6 @@ READINESS_SCORE_RANGES = [
     ("Red",    "#ef4444",  0,  9),
 ]
 
-BOWLER_STATUS_THRESHOLDS = [
-    ("Green",  "#22c55e",   0, 199),
-    ("Yellow", "#f59e0b", 200, 230),
-    ("Red",    "#ef4444", 231, 9999),
-]
 
 def readiness_score(row) -> int:
     """Sleep(1-5) + Energy(1-5) + inverted Soreness(1-5) → max 15."""
@@ -250,17 +236,12 @@ def readiness_band(score: int) -> tuple[str, str]:
             return label, color
     return "Red", "#ef4444"
 
-def bowler_status_band(balls: int) -> tuple[str, str]:
-    for label, color, lo, hi in BOWLER_STATUS_THRESHOLDS:
-        if lo <= balls <= hi:
-            return label, color
-    return "Red", "#ef4444"
 
 @st.fragment
 def render_overview():
     roster   = load_roster()
     wellness = load_wellness()
-    bowling  = load_bowling()
+    evening  = load_evening()
     today    = date.today()
 
     col_left, col_right = st.columns([1, 1], gap="large")
@@ -339,34 +320,44 @@ def render_overview():
             now_ts = pd.Timestamp(today)
             cutoff_week = now_ts - timedelta(days=7)
 
+            INTENSITY_COLOR = {"Low": "#22c55e", "Moderate": "#f59e0b", "High": "#ef4444"}
+
             rows = []
             for name in display_bowlers:
-                weekly_balls = 0
-                if not bowling.empty:
-                    pb = bowling[
-                        (bowling["player_name"] == name) &
-                        (bowling["timestamp"] >= cutoff_week)
+                bowling_days = 0
+                dominant_intensity = "—"
+                intensity_color = "#6b7a90"
+                if not evening.empty:
+                    pe = evening[
+                        (evening["player_name"] == name) &
+                        (evening["timestamp"] >= cutoff_week) &
+                        (evening["did_bowl"].astype(str).str.lower().isin(["true", "1", "yes"]))
                     ]
-                    if not pb.empty:
-                        weekly_balls = int(
-                            pb[["match_balls", "net_balls", "high_intensity_balls"]]
-                            .fillna(0).sum().sum()
-                        )
-                label, color = bowler_status_band(weekly_balls)
-                rows.append({"Name": name, "Weekly Balls": weekly_balls, "_color": color, "_label": label})
+                    if not pe.empty:
+                        bowling_days = len(pe["date"].unique())
+                        intensities = pe["bowling_intensity"].dropna()
+                        if not intensities.empty:
+                            dominant_intensity = intensities.mode().iloc[0]
+                            intensity_color = INTENSITY_COLOR.get(dominant_intensity, "#6b7a90")
+                rows.append({
+                    "Name": name,
+                    "Bowling Days": bowling_days,
+                    "_intensity": dominant_intensity,
+                    "_color": intensity_color,
+                })
 
             for r in rows:
                 col_n, col_b, col_s = st.columns([2, 1, 1])
                 with col_n:
                     st.markdown(f"<span style='font-size:14px;'>{r['Name']}</span>", unsafe_allow_html=True)
                 with col_b:
-                    st.markdown(f"<span style='font-size:14px;font-weight:600;'>{r['Weekly Balls']}</span>", unsafe_allow_html=True)
+                    st.markdown(f"<span style='font-size:14px;font-weight:600;'>{r['Bowling Days']}d</span>", unsafe_allow_html=True)
                 with col_s:
                     st.markdown(f"""
                     <span style="background:{r['_color']}22;color:{r['_color']};
                                  border:1px solid {r['_color']}55;border-radius:4px;
                                  padding:2px 10px;font-size:12px;font-weight:600;">
-                      {r['_label']}
+                      {r['_intensity']}
                     </span>""", unsafe_allow_html=True)
             st.markdown("<div style='height:4px;'></div>", unsafe_allow_html=True)
 
@@ -578,21 +569,26 @@ def render_raw_data():
             )
             _export_btn(df_s, "sessions")
 
-    # ── Bowling load ─────────────────────────────────────────────────────────
-    with st.expander("Bowling Load (Coach Logged)", expanded=False):
-        bowling = load_bowling()
-        if bowling.empty:
-            st.info("No bowling data yet.")
+    # ── Bowling check-ins ─────────────────────────────────────────────────────
+    with st.expander("Bowling Check-ins", expanded=False):
+        evening_raw = load_evening()
+        if evening_raw.empty:
+            st.info("No evening check-in data yet.")
         else:
-            df_b = _date_filter(bowling, "bowling")
-            df_b = df_b.assign(total=df_b[["match_balls","net_balls","high_intensity_balls"]].fillna(0).sum(axis=1))
-            st.dataframe(
-                df_b[["date","player_name","match_balls","net_balls","high_intensity_balls","total","notes"]]
-                  .rename(columns={"player_name":"Player","match_balls":"Match","net_balls":"Net",
-                                   "high_intensity_balls":"High Int.","total":"Total"}),
-                use_container_width=True, height=320,
+            df_bowl = _date_filter(
+                evening_raw[evening_raw["did_bowl"].astype(str).str.lower().isin(["true", "1", "yes"])].copy(),
+                "bowl_checkin",
             )
-            _export_btn(df_b, "bowling")
+            if df_bowl.empty:
+                st.info("No bowling check-ins in selected date range.")
+            else:
+                st.dataframe(
+                    df_bowl[["date","player_name","bowling_volume","bowling_intensity","session_rpe"]]
+                      .rename(columns={"player_name":"Player","bowling_volume":"Volume",
+                                       "bowling_intensity":"Intensity","session_rpe":"RPE"}),
+                    use_container_width=True, height=320,
+                )
+                _export_btn(df_bowl, "bowling_checkins")
 
     # ── Roster ───────────────────────────────────────────────────────────────
     with st.expander("Roster", expanded=False):
@@ -1236,10 +1232,10 @@ def render_admin_tab():
     st.subheader("Export Data")
     c1, c2, c3, c4 = st.columns(4)
     export_dfs = {
-        "wellness": load_wellness(),
-        "sessions": load_sessions(),
-        "bowling":  load_bowling(),
-        "roster":   current_roster,
+        "wellness":        load_wellness(),
+        "sessions":        load_sessions(),
+        "evening_checkins": load_evening(),
+        "roster":          current_roster,
     }
     for col, (name, df) in zip([c1, c2, c3, c4], export_dfs.items()):
         with col:
