@@ -186,8 +186,12 @@ tab_overview, tab_wellness, tab_sessions, tab_bowling, tab_squad, tab_admin = st
 # ════════════════════════════════════════════════════════════════════════════
 # TAB 1 — OVERVIEW
 # ════════════════════════════════════════════════════════════════════════════
-with tab_overview:
-    # Squad status bar
+@st.fragment
+def render_overview():
+    roster   = load_roster()
+    wellness = load_wellness()
+    today    = date.today()
+
     status_counts = {}
     if not roster.empty and "current_status" in roster.columns:
         status_counts = roster["current_status"].value_counts().to_dict()
@@ -204,37 +208,29 @@ with tab_overview:
             """, unsafe_allow_html=True)
 
     st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
-
     col_heat, col_right = st.columns([3, 1])
 
     with col_heat:
         st.markdown("**7-Day Wellness Heatmap**")
-        METRIC_COLS = ["sleep_quality","energy_level","body_soreness","mood","stress_level"]
-
         if not wellness.empty:
             cutoff = pd.Timestamp(today) - timedelta(days=6)
             df7 = wellness[wellness["timestamp"] >= cutoff].copy()
             if not df7.empty:
-                # Composite score: invert soreness and stress (high = bad)
-                df7["wellness_score"] = (
+                df7 = df7.assign(wellness_score=(
                     df7["sleep_quality"].fillna(3) +
                     df7["energy_level"].fillna(3) +
                     (6 - df7["body_soreness"].fillna(3)) +
                     df7["mood"].fillna(3) +
                     (6 - df7["stress_level"].fillna(3))
-                ) / 5
-
+                ) / 5)
                 latest = df7.sort_values("timestamp").groupby(["player_name","date"]).last().reset_index()
-                pivot = latest.pivot_table(index="player_name", columns="date",
-                                           values="wellness_score", aggfunc="mean")
+                pivot  = latest.pivot_table(index="player_name", columns="date",
+                                            values="wellness_score", aggfunc="mean")
                 pivot.columns = [str(c) for c in pivot.columns]
-
                 fig = px.imshow(
                     pivot,
                     color_continuous_scale=[[0,"#ef4444"],[0.4,"#f59e0b"],[0.7,"#22c55e"],[1,"#22c55e"]],
-                    zmin=1, zmax=5,
-                    text_auto=".1f",
-                    aspect="auto",
+                    zmin=1, zmax=5, text_auto=".1f", aspect="auto",
                 )
                 fig.update_layout(**DARK_LAYOUT, height=280, coloraxis_showscale=False)
                 fig.update_xaxes(title="", tickfont=dict(size=11), gridcolor="#1f2530")
@@ -246,7 +242,6 @@ with tab_overview:
             st.info("No wellness submissions yet.")
 
     with col_right:
-        # Alerts
         st.markdown("**Alerts**")
         if not wellness.empty:
             today_df = wellness[wellness["date"] == today]
@@ -265,7 +260,6 @@ with tab_overview:
                     issues.append("Lower back ⚠")
                 if issues:
                     alerts.append({"player": r["player_name"], "issues": issues})
-
             if alerts:
                 for a in alerts:
                     st.markdown(f"""
@@ -278,81 +272,90 @@ with tab_overview:
 
         st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
         st.markdown("**Today's Check-ins**")
-
         if not roster.empty:
             submitted = set()
             if not wellness.empty:
                 submitted = set(wellness[wellness["date"] == today]["player_name"].tolist())
             total = len(roster)
-            pct = int(len(submitted) / total * 100) if total else 0
+            pct   = int(len(submitted) / total * 100) if total else 0
             st.metric("Submitted", f"{len(submitted)} / {total}", f"{pct}%")
-
             missing = [n for n in roster["name"].tolist() if n not in submitted]
             if missing:
                 with st.expander(f"Missing ({len(missing)})"):
                     for name in missing:
                         st.markdown(f"- {name}")
 
+with tab_overview:
+    render_overview()
+
 # ════════════════════════════════════════════════════════════════════════════
 # TAB 2 — WELLNESS
 # ════════════════════════════════════════════════════════════════════════════
-with tab_wellness:
+@st.fragment
+def render_wellness():
+    wellness = load_wellness()
+    today    = date.today()
     st.subheader("Wellness Submissions")
 
     if wellness.empty:
         st.info("No wellness data yet. Share the check-in form with your players.")
-    else:
-        c1, c2 = st.columns([1, 2])
-        with c1:
-            player_opts = ["All"] + sorted(wellness["player_name"].dropna().unique().tolist())
-            sel_player = st.selectbox("Player", player_opts, key="w_player")
-        with c2:
-            date_range = st.date_input(
-                "Date range",
-                value=(today - timedelta(days=14), today),
-                key="w_dates",
-            )
+        return
 
-        df_w = wellness.copy()
-        if sel_player != "All":
-            df_w = df_w[df_w["player_name"] == sel_player]
-        if isinstance(date_range, tuple) and len(date_range) == 2:
-            df_w = df_w[(df_w["date"] >= date_range[0]) & (df_w["date"] <= date_range[1])]
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        player_opts = ["All"] + sorted(wellness["player_name"].dropna().unique().tolist())
+        sel_player  = st.selectbox("Player", player_opts, key="w_player")
+    with c2:
+        date_range = st.date_input(
+            "Date range",
+            value=(today - timedelta(days=14), today),
+            key="w_dates",
+        )
 
-        df_w = df_w.sort_values("timestamp", ascending=False)
+    df_w = wellness.copy()
+    if sel_player != "All":
+        df_w = df_w[df_w["player_name"] == sel_player]
+    if isinstance(date_range, tuple) and len(date_range) == 2:
+        df_w = df_w[(df_w["date"] >= date_range[0]) & (df_w["date"] <= date_range[1])]
+    df_w = df_w.sort_values("timestamp", ascending=False)
 
-        display = df_w[["date","player_name","sleep_quality","energy_level","body_soreness",
-                         "mood","stress_level","notes"]].rename(columns={
-            "player_name": "Player", "sleep_quality": "Sleep", "energy_level": "Energy",
-            "body_soreness": "Soreness", "mood": "Mood", "stress_level": "Stress",
-        })
+    display = df_w[["date","player_name","sleep_quality","energy_level","body_soreness",
+                     "mood","stress_level","notes"]].rename(columns={
+        "player_name": "Player", "sleep_quality": "Sleep", "energy_level": "Energy",
+        "body_soreness": "Soreness", "mood": "Mood", "stress_level": "Stress",
+    })
 
-        def score_bg(val, inverse=False):
-            try:
-                v = int(val)
-                if inverse:
-                    if v >= 4: return "background-color: rgba(239,68,68,0.25)"
-                    if v <= 2: return "background-color: rgba(34,197,94,0.25)"
-                else:
-                    if v >= 4: return "background-color: rgba(34,197,94,0.25)"
-                    if v <= 2: return "background-color: rgba(239,68,68,0.25)"
-                return "background-color: rgba(245,158,11,0.25)"
-            except Exception:
-                return ""
+    def score_bg(val, inverse=False):
+        try:
+            v = int(val)
+            if inverse:
+                if v >= 4: return "background-color: rgba(239,68,68,0.25)"
+                if v <= 2: return "background-color: rgba(34,197,94,0.25)"
+            else:
+                if v >= 4: return "background-color: rgba(34,197,94,0.25)"
+                if v <= 2: return "background-color: rgba(239,68,68,0.25)"
+            return "background-color: rgba(245,158,11,0.25)"
+        except Exception:
+            return ""
 
-        styled = display.style \
-            .applymap(lambda v: score_bg(v, inverse=False), subset=["Sleep","Energy","Mood"]) \
-            .applymap(lambda v: score_bg(v, inverse=True),  subset=["Soreness","Stress"])
+    styled = display.style \
+        .applymap(lambda v: score_bg(v, inverse=False), subset=["Sleep","Energy","Mood"]) \
+        .applymap(lambda v: score_bg(v, inverse=True),  subset=["Soreness","Stress"])
+    st.dataframe(styled, use_container_width=True, height=480)
 
-        st.dataframe(styled, use_container_width=True, height=480)
+with tab_wellness:
+    render_wellness()
 
 # ════════════════════════════════════════════════════════════════════════════
 # TAB 3 — SESSION LOAD
 # ════════════════════════════════════════════════════════════════════════════
-with tab_sessions:
+@st.fragment
+def render_sessions():
+    roster   = load_roster()
+    sessions = load_sessions()
+    today    = date.today()
     st.subheader("Session RPE Load")
 
-    # Manual entry form
     with st.expander("+ Log Session", expanded=sessions.empty):
         c1, c2, c3, c4 = st.columns(4)
         player_list = roster["name"].tolist() if not roster.empty else []
@@ -371,18 +374,16 @@ with tab_sessions:
                 "player_name": s_player, "session_type": s_type,
                 "duration_mins": s_dur, "rpe": s_rpe, "notes": s_notes,
             })
+            load_sessions.clear()
             st.success(f"Session logged for {s_player}")
-            st.cache_data.clear()
-            st.rerun()
+            sessions = load_sessions()
 
     if not sessions.empty:
         cutoff = pd.Timestamp(today - timedelta(days=28))
-        df_s = sessions[sessions["timestamp"] >= cutoff].copy()
-
+        df_s   = sessions[sessions["timestamp"] >= cutoff].copy()
         if not df_s.empty:
             daily = df_s.groupby("date")["load_au"].mean().reset_index()
             daily.columns = ["date", "avg_load"]
-
             fig = px.bar(
                 daily, x="date", y="avg_load",
                 labels={"date": "Date", "avg_load": "Team Avg Load (AU)"},
@@ -394,11 +395,10 @@ with tab_sessions:
             fig.update_yaxes(gridcolor="#1f2530")
             st.plotly_chart(fig, use_container_width=True)
 
-        # ACWR table for fast bowlers
         bowlers = fast_bowlers(roster)
         if bowlers:
             st.markdown("**ACWR — Fast Bowlers**")
-            now = pd.Timestamp(today)
+            now       = pd.Timestamp(today)
             acwr_rows = []
             for player in bowlers:
                 ps = sessions[sessions["player_name"] == player]
@@ -416,17 +416,21 @@ with tab_sessions:
                 df_acwr = pd.DataFrame(acwr_rows)
                 def risk_color(val):
                     return {"Low":"color:#22c55e","Moderate":"color:#f59e0b","High":"color:#ef4444"}.get(val,"")
-                st.dataframe(
-                    df_acwr.style.applymap(risk_color, subset=["Risk"]),
-                    use_container_width=True,
-                )
+                st.dataframe(df_acwr.style.applymap(risk_color, subset=["Risk"]), use_container_width=True)
     else:
         st.info("No session data yet. Use the form above to log sessions.")
+
+with tab_sessions:
+    render_sessions()
 
 # ════════════════════════════════════════════════════════════════════════════
 # TAB 4 — BOWLING LOAD
 # ════════════════════════════════════════════════════════════════════════════
-with tab_bowling:
+@st.fragment
+def render_bowling():
+    roster  = load_roster()
+    bowling = load_bowling()
+    today   = date.today()
     st.subheader("Bowling Load — Fast Bowlers")
 
     bowlers = fast_bowlers(roster)
@@ -449,15 +453,13 @@ with tab_bowling:
                 "player_name": b_player, "match_balls": b_match,
                 "net_balls": b_net, "high_intensity_balls": b_hi, "notes": b_notes,
             })
+            load_bowling.clear()
             st.success(f"Bowling session logged for {b_player}")
-            st.cache_data.clear()
-            st.rerun()
+            bowling = load_bowling()
 
     if not bowling.empty:
         df_b = bowling.copy()
-        df_b["total_balls"] = df_b[["match_balls","net_balls","high_intensity_balls"]].fillna(0).sum(axis=1)
-
-        # Rolling 7-day total per bowler
+        df_b = df_b.assign(total_balls=df_b[["match_balls","net_balls","high_intensity_balls"]].fillna(0).sum(axis=1))
         if bowlers:
             cutoff = pd.Timestamp(today - timedelta(days=7))
             recent = df_b[df_b["timestamp"] >= cutoff].groupby("player_name")["total_balls"].sum().reset_index()
@@ -471,7 +473,6 @@ with tab_bowling:
             fig.update_xaxes(gridcolor="#1f2530")
             fig.update_yaxes(gridcolor="#1f2530")
             st.plotly_chart(fig, use_container_width=True)
-
         st.dataframe(
             df_b[["date","player_name","match_balls","net_balls","high_intensity_balls","total_balls","notes"]]
               .sort_values("date", ascending=False)
@@ -482,72 +483,78 @@ with tab_bowling:
     else:
         st.info("No bowling data yet.")
 
+with tab_bowling:
+    render_bowling()
+
 # ════════════════════════════════════════════════════════════════════════════
 # TAB 5 — SQUAD
 # ════════════════════════════════════════════════════════════════════════════
-with tab_squad:
+@st.fragment
+def render_squad():
+    roster   = load_roster()
+    wellness = load_wellness()
     st.subheader("Squad")
 
     if roster.empty:
         st.info("No players yet — add them in the Admin tab.")
-    else:
-        for _, player in roster.iterrows():
-            status = player.get("current_status", "Unknown")
-            color  = STATUS_COLORS.get(status, "#6b7a90")
-            label  = f"**{player['name']}** &nbsp; `{player.get('role','?')}` &nbsp; <span style='color:{color}'>{status}</span>"
+        return
 
-            with st.expander(f"{player['name']}  —  {player.get('role','?')}  |  {status}"):
-                c_info, c_radar = st.columns([1, 2])
-
-                with c_info:
-                    st.markdown(f"**Role:** {player.get('role','—')}")
-                    st.markdown(f"**Type:** {player.get('type','—')}")
-                    st.markdown(f"**Age:** {player.get('age','—')}")
-                    st.markdown(f"**Fast bowler:** {'Yes' if is_fast_bowler(player.get('is_fast_bowler')) else 'No'}")
-                    ih = player.get("injury_history")
-                    if pd.notna(ih) and ih:
-                        st.markdown(f"**Injury history:** {ih}")
-                    sn = player.get("status_notes")
-                    if pd.notna(sn) and sn:
-                        st.markdown(f"**Notes:** {sn}")
-
-                with c_radar:
-                    if not wellness.empty:
-                        pw = wellness[wellness["player_name"] == player["name"]].sort_values("timestamp")
-                        if not pw.empty:
-                            last = pw.iloc[-1]
-                            r_labels = ["Sleep","Energy","Soreness*","Mood","Stress*"]
-                            r_vals   = [
-                                float(last.get("sleep_quality", 3) or 3),
-                                float(last.get("energy_level",  3) or 3),
-                                float(last.get("body_soreness", 3) or 3),
-                                float(last.get("mood",          3) or 3),
-                                float(last.get("stress_level",  3) or 3),
-                            ]
-                            fig = go.Figure(go.Scatterpolar(
-                                r=r_vals + [r_vals[0]],
-                                theta=r_labels + [r_labels[0]],
-                                fill="toself",
-                                fillcolor="rgba(0,194,255,0.12)",
-                                line=dict(color="#00c2ff", width=2),
-                            ))
-                            fig.update_layout(
-                                polar=dict(
-                                    radialaxis=dict(visible=True, range=[0,5], color="#6b7a90", tickfont=dict(size=9)),
-                                    angularaxis=dict(color="#6b7a90"),
-                                    bgcolor="#111318",
-                                ),
-                                paper_bgcolor="#161a22",
-                                font=dict(color="#e8edf5"),
-                                height=240, margin=dict(t=16, b=16, l=16, r=16),
-                                showlegend=False,
-                            )
-                            st.plotly_chart(fig, use_container_width=True)
-                            st.caption(f"Last submission: {last['date']}")
-                        else:
-                            st.info("No wellness data for this player.")
+    for _, player in roster.iterrows():
+        status = player.get("current_status", "Unknown")
+        color  = STATUS_COLORS.get(status, "#6b7a90")
+        with st.expander(f"{player['name']}  —  {player.get('role','?')}  |  {status}"):
+            c_info, c_radar = st.columns([1, 2])
+            with c_info:
+                st.markdown(f"**Role:** {player.get('role','—')}")
+                st.markdown(f"**Type:** {player.get('type','—')}")
+                st.markdown(f"**Age:** {player.get('age','—')}")
+                st.markdown(f"**Fast bowler:** {'Yes' if is_fast_bowler(player.get('is_fast_bowler')) else 'No'}")
+                ih = player.get("injury_history")
+                if pd.notna(ih) and ih:
+                    st.markdown(f"**Injury history:** {ih}")
+                sn = player.get("status_notes")
+                if pd.notna(sn) and sn:
+                    st.markdown(f"**Notes:** {sn}")
+            with c_radar:
+                if not wellness.empty:
+                    pw = wellness[wellness["player_name"] == player["name"]].sort_values("timestamp")
+                    if not pw.empty:
+                        last     = pw.iloc[-1]
+                        r_labels = ["Sleep","Energy","Soreness*","Mood","Stress*"]
+                        r_vals   = [
+                            float(last.get("sleep_quality", 3) or 3),
+                            float(last.get("energy_level",  3) or 3),
+                            float(last.get("body_soreness", 3) or 3),
+                            float(last.get("mood",          3) or 3),
+                            float(last.get("stress_level",  3) or 3),
+                        ]
+                        fig = go.Figure(go.Scatterpolar(
+                            r=r_vals + [r_vals[0]],
+                            theta=r_labels + [r_labels[0]],
+                            fill="toself",
+                            fillcolor="rgba(0,194,255,0.12)",
+                            line=dict(color="#00c2ff", width=2),
+                        ))
+                        fig.update_layout(
+                            polar=dict(
+                                radialaxis=dict(visible=True, range=[0,5], color="#6b7a90", tickfont=dict(size=9)),
+                                angularaxis=dict(color="#6b7a90"),
+                                bgcolor="#111318",
+                            ),
+                            paper_bgcolor="#161a22",
+                            font=dict(color="#e8edf5"),
+                            height=240, margin=dict(t=16, b=16, l=16, r=16),
+                            showlegend=False,
+                        )
+                        st.plotly_chart(fig, use_container_width=True, key=f"radar_{player['name']}")
+                        st.caption(f"Last submission: {last['date']}")
                     else:
-                        st.info("No wellness data yet.")
+                        st.info("No wellness data for this player.")
+                else:
+                    st.info("No wellness data yet.")
+
+with tab_squad:
+    render_squad()
 
 # ════════════════════════════════════════════════════════════════════════════
 # TAB 6 — ADMIN
