@@ -15,4 +15,5 @@ dependencies = [
     # Shared
     "pandas==2.2.3",
     "python-dotenv==1.0.1",
+    "requests==2.32.3",
 ]

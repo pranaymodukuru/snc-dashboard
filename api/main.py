@@ -3,13 +3,14 @@ load_dotenv()
 
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
+import json
 import os
 
 app = FastAPI(title="SNC Check-in API")
@@ -29,6 +30,8 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 WELLNESS_CSV = DATA_DIR / "wellness.csv"
 ROSTER_CSV   = DATA_DIR / "roster.csv"
+SESSIONS_CSV = DATA_DIR / "sessions.csv"
+BOWLING_CSV  = DATA_DIR / "bowling.csv"
 
 WELLNESS_COLS = [
     "timestamp", "player_name", "sleep_quality", "energy_level", "body_soreness",
@@ -39,6 +42,8 @@ ROSTER_COLS = [
     "name", "role", "type", "age", "is_fast_bowler",
     "injury_history", "current_status", "status_notes",
 ]
+SESSIONS_COLS = ["timestamp", "player_name", "session_type", "duration_mins", "rpe", "notes"]
+BOWLING_COLS  = ["timestamp", "player_name", "match_balls", "net_balls", "high_intensity_balls", "notes"]
 
 
 def ensure_csv(path: Path, columns: list):
@@ -53,6 +58,13 @@ def append_row(path: Path, columns: list, row: dict):
     pd.concat([df, new_row], ignore_index=True).to_csv(path, index=False)
 
 
+def df_to_json_response(df: pd.DataFrame) -> JSONResponse:
+    """Serialize a DataFrame to JSON, converting NaN → null safely."""
+    return JSONResponse(content=json.loads(df.to_json(orient="records")))
+
+
+# ── Pydantic models ──────────────────────────────────────────────────────────
+
 class WellnessSubmission(BaseModel):
     player_name: str
     sleep_quality: int
@@ -65,6 +77,24 @@ class WellnessSubmission(BaseModel):
     lower_back_stiffness: Optional[int] = None
     notes: Optional[str] = ""
 
+
+class SessionSubmission(BaseModel):
+    player_name: str
+    session_type: str
+    duration_mins: int
+    rpe: int
+    notes: Optional[str] = ""
+
+
+class BowlingSubmission(BaseModel):
+    player_name: str
+    match_balls: int = 0
+    net_balls: int = 0
+    high_intensity_balls: int = 0
+    notes: Optional[str] = ""
+
+
+# ── Check-in form ────────────────────────────────────────────────────────────
 
 @app.get("/checkin", response_class=HTMLResponse)
 async def checkin_form(request: Request):
@@ -93,6 +123,59 @@ async def submit_wellness(data: WellnessSubmission):
     append_row(WELLNESS_CSV, WELLNESS_COLS, row)
     return {"status": "ok", "player_name": data.player_name}
 
+
+# ── Data read endpoints (used by dashboard) ──────────────────────────────────
+
+@app.get("/data/wellness")
+async def get_wellness():
+    ensure_csv(WELLNESS_CSV, WELLNESS_COLS)
+    return df_to_json_response(pd.read_csv(WELLNESS_CSV))
+
+
+@app.get("/data/roster")
+async def get_roster():
+    ensure_csv(ROSTER_CSV, ROSTER_COLS)
+    return df_to_json_response(pd.read_csv(ROSTER_CSV))
+
+
+@app.get("/data/sessions")
+async def get_sessions():
+    ensure_csv(SESSIONS_CSV, SESSIONS_COLS)
+    return df_to_json_response(pd.read_csv(SESSIONS_CSV))
+
+
+@app.get("/data/bowling")
+async def get_bowling():
+    ensure_csv(BOWLING_CSV, BOWLING_COLS)
+    return df_to_json_response(pd.read_csv(BOWLING_CSV))
+
+
+# ── Data write endpoints (used by dashboard) ─────────────────────────────────
+
+@app.post("/data/sessions")
+async def post_session(data: SessionSubmission):
+    row = data.model_dump()
+    row["timestamp"] = datetime.now().isoformat()
+    append_row(SESSIONS_CSV, SESSIONS_COLS, row)
+    return {"status": "ok"}
+
+
+@app.post("/data/bowling")
+async def post_bowling(data: BowlingSubmission):
+    row = data.model_dump()
+    row["timestamp"] = datetime.now().isoformat()
+    append_row(BOWLING_CSV, BOWLING_COLS, row)
+    return {"status": "ok"}
+
+
+@app.put("/data/roster")
+async def put_roster(records: list[dict]):
+    df = pd.DataFrame(records)
+    df.to_csv(ROSTER_CSV, index=False)
+    return {"status": "ok"}
+
+
+# ── Health ───────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():

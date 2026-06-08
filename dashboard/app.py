@@ -5,9 +5,9 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from pathlib import Path
-from datetime import datetime, timedelta, date
+from datetime import timedelta, date
 import os
+import requests
 
 # ── Page config ─────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -18,8 +18,7 @@ st.set_page_config(
 )
 
 DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "knights2024")
-DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+API_URL = os.getenv("API_URL", "http://localhost:8000")
 
 # ── Custom CSS ───────────────────────────────────────────────────────────────
 st.markdown("""
@@ -97,58 +96,53 @@ DARK_LAYOUT = dict(
 )
 
 # ── Data helpers ─────────────────────────────────────────────────────────────
-def ensure_csv(path: Path, columns: list):
-    if not path.exists():
-        pd.DataFrame(columns=columns).to_csv(path, index=False)
 
-def save_row(path: Path, columns: list, row: dict):
-    ensure_csv(path, columns)
-    df = pd.read_csv(path)
-    new = pd.DataFrame([{c: row.get(c) for c in columns}])
-    pd.concat([df, new], ignore_index=True).to_csv(path, index=False)
+def _api_get(path: str) -> list:
+    """GET from API; returns list of records or empty list on error."""
+    try:
+        r = requests.get(f"{API_URL}{path}", timeout=5)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        st.warning(f"Could not reach API ({path}): {e}")
+        return []
+
 
 @st.cache_data(ttl=30)
 def load_wellness() -> pd.DataFrame:
-    p = DATA_DIR / "wellness.csv"
-    ensure_csv(p, WELLNESS_COLS)
-    df = pd.read_csv(p)
+    df = pd.DataFrame(_api_get("/data/wellness"), columns=WELLNESS_COLS)
     if not df.empty:
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df["date"] = df["timestamp"].dt.date
     return df
 
+
 @st.cache_data(ttl=30)
 def load_roster() -> pd.DataFrame:
-    p = DATA_DIR / "roster.csv"
-    ensure_csv(p, ROSTER_COLS)
-    df = pd.read_csv(p, dtype={
-        "name": "str", "role": "str", "type": "str",
-        "injury_history": "str", "current_status": "str", "status_notes": "str",
-    })
-    str_cols = ["name", "role", "type", "injury_history", "current_status", "status_notes"]
-    df = df.assign(**{
-        col: df[col].fillna("") for col in str_cols if col in df.columns
-    })
-    if "is_fast_bowler" in df.columns:
-        df = df.assign(is_fast_bowler=df["is_fast_bowler"].fillna(False).infer_objects(copy=False).astype(bool))
+    df = pd.DataFrame(_api_get("/data/roster"), columns=ROSTER_COLS)
+    if not df.empty:
+        str_cols = ["name", "role", "type", "injury_history", "current_status", "status_notes"]
+        df = df.assign(**{col: df[col].fillna("") for col in str_cols if col in df.columns})
+        if "is_fast_bowler" in df.columns:
+            df = df.assign(
+                is_fast_bowler=df["is_fast_bowler"].fillna(False).infer_objects(copy=False).astype(bool)
+            )
     return df
+
 
 @st.cache_data(ttl=30)
 def load_sessions() -> pd.DataFrame:
-    p = DATA_DIR / "sessions.csv"
-    ensure_csv(p, SESSIONS_COLS)
-    df = pd.read_csv(p)
+    df = pd.DataFrame(_api_get("/data/sessions"), columns=SESSIONS_COLS)
     if not df.empty:
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df["date"] = df["timestamp"].dt.date
         df["load_au"] = df["duration_mins"] * df["rpe"]
     return df
 
+
 @st.cache_data(ttl=30)
 def load_bowling() -> pd.DataFrame:
-    p = DATA_DIR / "bowling.csv"
-    ensure_csv(p, BOWLING_COLS)
-    df = pd.read_csv(p)
+    df = pd.DataFrame(_api_get("/data/bowling"), columns=BOWLING_COLS)
     if not df.empty:
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df["date"] = df["timestamp"].dt.date
@@ -369,14 +363,17 @@ def render_sessions():
             s_rpe = st.slider("RPE (1–10)", 1, 10, 6, key="s_rpe")
         s_notes = st.text_input("Notes", key="s_notes")
         if st.button("Log Session", type="primary"):
-            save_row(DATA_DIR / "sessions.csv", SESSIONS_COLS, {
-                "timestamp": datetime.now().isoformat(),
-                "player_name": s_player, "session_type": s_type,
-                "duration_mins": s_dur, "rpe": s_rpe, "notes": s_notes,
-            })
-            load_sessions.clear()
-            st.success(f"Session logged for {s_player}")
-            sessions = load_sessions()
+            try:
+                r = requests.post(f"{API_URL}/data/sessions", json={
+                    "player_name": s_player, "session_type": s_type,
+                    "duration_mins": s_dur, "rpe": s_rpe, "notes": s_notes,
+                }, timeout=5)
+                r.raise_for_status()
+                load_sessions.clear()
+                st.success(f"Session logged for {s_player}")
+                sessions = load_sessions()
+            except Exception as e:
+                st.error(f"Failed to log session: {e}")
 
     if not sessions.empty:
         cutoff = pd.Timestamp(today - timedelta(days=28))
@@ -448,14 +445,17 @@ def render_bowling():
             b_hi = st.number_input("High intensity", 0, 500, 0, key="b_hi")
         b_notes = st.text_input("Notes", key="b_notes")
         if st.button("Log Bowling", type="primary"):
-            save_row(DATA_DIR / "bowling.csv", BOWLING_COLS, {
-                "timestamp": datetime.now().isoformat(),
-                "player_name": b_player, "match_balls": b_match,
-                "net_balls": b_net, "high_intensity_balls": b_hi, "notes": b_notes,
-            })
-            load_bowling.clear()
-            st.success(f"Bowling session logged for {b_player}")
-            bowling = load_bowling()
+            try:
+                r = requests.post(f"{API_URL}/data/bowling", json={
+                    "player_name": b_player, "match_balls": b_match,
+                    "net_balls": b_net, "high_intensity_balls": b_hi, "notes": b_notes,
+                }, timeout=5)
+                r.raise_for_status()
+                load_bowling.clear()
+                st.success(f"Bowling session logged for {b_player}")
+                bowling = load_bowling()
+            except Exception as e:
+                st.error(f"Failed to log bowling: {e}")
 
     if not bowling.empty:
         df_b = bowling.copy()
@@ -507,7 +507,8 @@ def render_squad():
             with c_info:
                 st.markdown(f"**Role:** {player.get('role','—')}")
                 st.markdown(f"**Type:** {player.get('type','—')}")
-                st.markdown(f"**Age:** {player.get('age','—')}")
+                age_val = player.get('age')
+                st.markdown(f"**Age:** {int(age_val) if pd.notna(age_val) and age_val != '' else '—'}")
                 st.markdown(f"**Fast bowler:** {'Yes' if is_fast_bowler(player.get('is_fast_bowler')) else 'No'}")
                 ih = player.get("injury_history")
                 if pd.notna(ih) and ih:
@@ -575,7 +576,7 @@ def render_admin_tab():
             "role":           st.column_config.SelectboxColumn("Role",
                                 options=["Batsman","Bowler","All-rounder","Wicket-keeper"]),
             "type":           st.column_config.TextColumn("Playing Type", help="e.g. Right-arm fast, Left-hand bat"),
-            "age":            st.column_config.NumberColumn("Age", min_value=10, max_value=60, step=1),
+            "age":            st.column_config.NumberColumn("Age", min_value=None, max_value=None, step=1),
             "is_fast_bowler": st.column_config.CheckboxColumn("Fast Bowler?"),
             "injury_history": st.column_config.TextColumn("Injury History"),
             "current_status": st.column_config.SelectboxColumn("Status",
@@ -588,9 +589,14 @@ def render_admin_tab():
     c_save, c_gap = st.columns([1, 4])
     with c_save:
         if st.button("Save Roster", type="primary", use_container_width=True):
-            edited.to_csv(DATA_DIR / "roster.csv", index=False)
-            load_roster.clear()
-            st.rerun()
+            try:
+                r = requests.put(f"{API_URL}/data/roster",
+                                 json=edited.to_dict(orient="records"), timeout=10)
+                r.raise_for_status()
+                load_roster.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed to save roster: {e}")
 
     st.divider()
     st.subheader("Export Data")
