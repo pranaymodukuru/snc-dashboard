@@ -23,19 +23,24 @@
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     background: var(--bg); color: var(--text); font-family: var(--font-body);
-    min-height: 100vh; padding: 0 0 60px;
+    min-height: 100vh; padding: 0 0 80px;
   }
   .top-bar {
     background: var(--surface); border-bottom: 1px solid var(--border);
     padding: 14px 20px; display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 10;
   }
   .top-logo { font-family: var(--font-display); font-size: 20px; letter-spacing: 3px; }
   .top-logo span { color: var(--accent); }
   .top-date { color: var(--muted); font-size: 12px; }
+
+  /* ── Screens ── */
   .screen { display: none; padding: 24px 20px; max-width: 480px; margin: 0 auto; }
-  .screen.active { display: block; animation: fadeUp 0.3s ease; }
-  .screen-title { font-family: var(--font-display); font-size: 28px; letter-spacing: 2px; margin-bottom: 6px; }
+  .screen.active { display: block; animation: fadeUp 0.25s ease; }
+  .screen-title { font-family: var(--font-display); font-size: 30px; letter-spacing: 2px; margin-bottom: 6px; }
   .screen-sub { color: var(--muted); font-size: 13px; margin-bottom: 28px; }
+
+  /* ── Player grid ── */
   .player-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .player-btn {
     background: var(--card); border: 1px solid var(--border); border-radius: 10px;
@@ -49,6 +54,23 @@
     grid-column: 1 / -1; text-align: center; color: var(--muted);
     font-size: 14px; padding: 40px 16px; line-height: 1.6;
   }
+
+  /* ── Session type cards ── */
+  .session-type-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
+  .session-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 28px 16px; text-align: center; cursor: pointer; transition: all 0.2s;
+    color: var(--text); display: flex; flex-direction: column; align-items: center; gap: 10px;
+  }
+  .session-card:hover { transform: translateY(-2px); }
+  .session-card.morning-card:hover { border-color: var(--yellow); background: rgba(245,158,11,0.05); }
+  .session-card.evening-card:hover { border-color: var(--accent); background: rgba(0,194,255,0.05); }
+  .session-card:active { transform: scale(0.97); }
+  .session-icon { font-size: 36px; }
+  .session-title { font-family: var(--font-display); font-size: 22px; letter-spacing: 2px; line-height: 1.2; }
+  .session-desc { font-size: 11px; color: var(--muted); }
+
+  /* ── Form header ── */
   .form-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
   .back-btn {
     background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
@@ -60,6 +82,14 @@
     background: rgba(0,194,255,0.1); border: 1px solid rgba(0,194,255,0.2);
     color: var(--accent); padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 500;
   }
+  .session-badge {
+    font-size: 11px; padding: 3px 10px; border-radius: 20px; font-weight: 600;
+    letter-spacing: 0.5px; text-transform: uppercase;
+  }
+  .badge-morning { background: rgba(245,158,11,0.12); color: var(--yellow); border: 1px solid rgba(245,158,11,0.3); }
+  .badge-evening { background: rgba(0,194,255,0.12); color: var(--accent); border: 1px solid rgba(0,194,255,0.3); }
+
+  /* ── Questions / sliders ── */
   .question { margin-bottom: 28px; }
   .q-label {
     font-size: 14px; font-weight: 500; margin-bottom: 6px;
@@ -83,11 +113,72 @@
   .slider-labels {
     display: flex; justify-content: space-between; margin-top: 6px; font-size: 10px; color: var(--muted);
   }
+  .rpe-interp {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;
+  }
+  .rpe-tag {
+    font-size: 10px; padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .rpe-tag.active { color: var(--text); border-color: currentColor; }
+
+  /* ── Divider ── */
   .section-divider {
     display: flex; align-items: center; gap: 10px; margin: 32px 0 24px;
     color: var(--muted); font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase;
   }
   .section-divider::before, .section-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  /* ── Tightness chips ── */
+  .chip-group { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+  .chip {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 20px;
+    padding: 7px 16px; cursor: pointer; font-size: 13px; color: var(--muted);
+    font-family: var(--font-body); transition: all 0.15s;
+  }
+  .chip:active { transform: scale(0.95); }
+  .chip.selected {
+    background: rgba(0,194,255,0.1); border-color: var(--accent); color: var(--accent);
+  }
+  .chip.chip-none.selected {
+    background: rgba(34,197,94,0.1); border-color: var(--green); color: var(--green);
+  }
+
+  /* ── Availability status cards ── */
+  .avail-grid { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+  .avail-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 16px; cursor: pointer; transition: all 0.15s; text-align: left;
+    font-family: var(--font-body);
+  }
+  .avail-card:active { transform: scale(0.99); }
+  .avail-card.selected { border-color: var(--accent); background: rgba(0,194,255,0.05); }
+  .avail-card.selected .avail-dot { background: var(--accent); }
+  .avail-header { display: flex; align-items: center; gap: 10px; }
+  .avail-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border); flex-shrink: 0; transition: background 0.15s; }
+  .avail-title { font-size: 14px; font-weight: 500; color: var(--text); }
+  .avail-desc { font-size: 11px; color: var(--muted); margin-top: 4px; padding-left: 20px; }
+
+  /* ── Bowling toggle ── */
+  .toggle-row { display: flex; gap: 10px; margin-top: 4px; }
+  .toggle-btn {
+    flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px; font-size: 14px; font-weight: 500; cursor: pointer;
+    color: var(--muted); font-family: var(--font-body); transition: all 0.15s;
+  }
+  .toggle-btn.yes.selected { border-color: var(--green); background: rgba(34,197,94,0.1); color: var(--green); }
+  .toggle-btn.no.selected  { border-color: var(--red);   background: rgba(239,68,68,0.1);  color: var(--red);   }
+
+  /* ── Radio option rows ── */
+  .radio-grid { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+  .radio-opt {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 16px; cursor: pointer; font-size: 13px; color: var(--muted);
+    font-family: var(--font-body); transition: all 0.15s; text-align: left;
+  }
+  .radio-opt.selected { border-color: var(--accent); background: rgba(0,194,255,0.08); color: var(--text); }
+
+  /* ── Notes ── */
   .notes-input {
     width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
     padding: 12px 14px; color: var(--text); font-family: var(--font-body); font-size: 14px;
@@ -95,6 +186,8 @@
   }
   .notes-input:focus { border-color: var(--accent); }
   .notes-input::placeholder { color: var(--muted); }
+
+  /* ── Submit button ── */
   .submit-btn {
     width: 100%; background: var(--accent); color: #000; border: none; border-radius: 12px;
     padding: 16px; font-family: var(--font-display); font-size: 22px; letter-spacing: 2px;
@@ -102,6 +195,8 @@
   }
   .submit-btn:active { transform: scale(0.98); opacity: 0.9; }
   .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ── Success ── */
   .success-icon { font-size: 64px; text-align: center; margin: 40px 0 16px; }
   .success-title {
     font-family: var(--font-display); font-size: 36px; letter-spacing: 3px;
@@ -124,6 +219,7 @@
     padding: 14px; color: var(--text); font-family: var(--font-body); font-size: 14px;
     cursor: pointer; transition: border-color 0.2s;
   }
+
   @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
 </style>
 </head>
@@ -134,110 +230,209 @@
   <div class="top-date" id="top-date"></div>
 </div>
 
-<!-- SCREEN 1: SELECT PLAYER -->
+<!-- ── SCREEN 1: Player selection ── -->
 <div class="screen active" id="screen-player">
   <div style="height:24px;"></div>
   <div class="screen-title">DAILY<br>CHECK-IN</div>
-  <div class="screen-sub">Select your name to begin today's check-in</div>
+  <div class="screen-sub">Select your name to begin</div>
   <div class="player-grid" id="player-grid"></div>
 </div>
 
-<!-- SCREEN 2: WELLNESS FORM -->
-<div class="screen" id="screen-form">
+<!-- ── SCREEN 2: Morning / Evening choice ── -->
+<div class="screen" id="screen-type">
   <div class="form-header">
-    <button class="back-btn" onclick="goBack()">← Back</button>
-    <div class="player-tag" id="selected-name"></div>
+    <button class="back-btn" id="back-type" onclick="goToPlayerSelect()">← Back</button>
+    <div class="player-tag" id="selected-name-type"></div>
+  </div>
+  <div class="screen-title">WHAT TYPE<br>OF CHECK-IN?</div>
+  <div class="session-type-grid">
+    <button class="session-card morning-card" onclick="startMorning()">
+      <div class="session-icon">🌅</div>
+      <div class="session-title">MORNING<br>CHECK-IN</div>
+      <div class="session-desc">Wellness &amp; readiness</div>
+    </button>
+    <button class="session-card evening-card" onclick="startEvening()">
+      <div class="session-icon">🌙</div>
+      <div class="session-title">EVENING<br>CHECK-IN</div>
+      <div class="session-desc">Session &amp; load</div>
+    </button>
+  </div>
+</div>
+
+<!-- ── SCREEN 3: Morning form ── -->
+<div class="screen" id="screen-morning">
+  <div class="form-header">
+    <button class="back-btn" onclick="showScreen('screen-type')">← Back</button>
+    <div class="player-tag" id="selected-name-morning"></div>
+    <span class="session-badge badge-morning">Morning</span>
   </div>
   <div class="screen-title">HOW ARE<br>YOU TODAY?</div>
-  <div style="height:20px;"></div>
+  <div style="height:16px;"></div>
 
   <div class="question">
     <div class="q-label">😴 Sleep Quality<span class="q-score" id="score-sleep" style="color:var(--yellow);">3</span></div>
     <div class="q-hint">How well did you sleep last night?</div>
-    <input type="range" min="1" max="5" value="3" id="slider-sleep" oninput="updateSlider('sleep', this.value)">
+    <input type="range" min="1" max="5" value="3" id="slider-sleep" oninput="updateSlider('sleep',this.value)">
     <div class="slider-labels"><span>Very Poor</span><span>Excellent</span></div>
   </div>
 
   <div class="question">
     <div class="q-label">⚡ Energy Level<span class="q-score" id="score-energy" style="color:var(--yellow);">3</span></div>
     <div class="q-hint">How is your energy this morning?</div>
-    <input type="range" min="1" max="5" value="3" id="slider-energy" oninput="updateSlider('energy', this.value)">
+    <input type="range" min="1" max="5" value="3" id="slider-energy" oninput="updateSlider('energy',this.value)">
     <div class="slider-labels"><span>Very Low</span><span>Excellent</span></div>
   </div>
 
   <div class="question">
     <div class="q-label">💪 Body Soreness<span class="q-score" id="score-soreness" style="color:var(--yellow);">3</span></div>
     <div class="q-hint">How sore do you feel? (1 = fresh, 5 = very sore)</div>
-    <input type="range" min="1" max="5" value="3" id="slider-soreness" oninput="updateSlider('soreness', this.value)">
+    <input type="range" min="1" max="5" value="3" id="slider-soreness" oninput="updateSlider('soreness',this.value)">
     <div class="slider-labels"><span>Fresh</span><span>Very Sore</span></div>
   </div>
 
-  <div class="question">
-    <div class="q-label">🧠 Mood<span class="q-score" id="score-mood" style="color:var(--yellow);">3</span></div>
-    <div class="q-hint">How are you feeling mentally?</div>
-    <input type="range" min="1" max="5" value="3" id="slider-mood" oninput="updateSlider('mood', this.value)">
-    <div class="slider-labels"><span>Poor</span><span>Great</span></div>
+  <div class="section-divider">Tightness Location</div>
+  <div class="q-hint" style="margin-bottom:10px;">Select all areas where you feel tightness (or None)</div>
+  <div class="chip-group" id="tightness-chips">
+    <button class="chip" data-loc="Hamstring" onclick="toggleChip(this)">Hamstring</button>
+    <button class="chip" data-loc="Groin"     onclick="toggleChip(this)">Groin</button>
+    <button class="chip" data-loc="Back"      onclick="toggleChip(this)">Back</button>
+    <button class="chip" data-loc="Shoulder"  onclick="toggleChip(this)">Shoulder</button>
+    <button class="chip" data-loc="Knee"      onclick="toggleChip(this)">Knee</button>
+    <button class="chip" data-loc="Calf"      onclick="toggleChip(this)">Calf</button>
+    <button class="chip chip-none" data-loc="None" onclick="toggleChip(this)">None</button>
   </div>
 
-  <div class="question">
-    <div class="q-label">😤 Stress<span class="q-score" id="score-stress" style="color:var(--yellow);">3</span></div>
-    <div class="q-hint">How stressed do you feel? (1 = relaxed, 5 = very stressed)</div>
-    <input type="range" min="1" max="5" value="3" id="slider-stress" oninput="updateSlider('stress', this.value)">
-    <div class="slider-labels"><span>Relaxed</span><span>Very Stressed</span></div>
-  </div>
-
-  <div id="bowler-section" style="display:none;">
-    <div class="section-divider">Fast Bowler Specific</div>
-    <div class="question">
-      <div class="q-label">🦵 Hamstring<span class="q-score" id="score-hamstring" style="color:var(--green);">1</span></div>
-      <div class="q-hint">Any tightness or neural pull? (1 = none, 5 = very tight)</div>
-      <input type="range" min="1" max="5" value="1" id="slider-hamstring" oninput="updateSlider('hamstring', this.value)">
-      <div class="slider-labels"><span>None</span><span>Very Tight</span></div>
-    </div>
-    <div class="question">
-      <div class="q-label">🦵 Groin<span class="q-score" id="score-groin" style="color:var(--green);">1</span></div>
-      <div class="q-hint">Any adductor stiffness? (1 = none, 5 = very tight)</div>
-      <input type="range" min="1" max="5" value="1" id="slider-groin" oninput="updateSlider('groin', this.value)">
-      <div class="slider-labels"><span>None</span><span>Very Tight</span></div>
-    </div>
-    <div class="question">
-      <div class="q-label">🔙 Lower Back<span class="q-score" id="score-back" style="color:var(--green);">1</span></div>
-      <div class="q-hint">Lumbar stiffness or extension soreness? (1 = none, 5 = very stiff)</div>
-      <input type="range" min="1" max="5" value="1" id="slider-back" oninput="updateSlider('back', this.value)">
-      <div class="slider-labels"><span>None</span><span>Very Stiff</span></div>
-    </div>
+  <div class="section-divider">Daily Availability</div>
+  <div class="q-hint" style="margin-bottom:10px;">How available are you to train today?</div>
+  <div class="avail-grid" id="avail-options">
+    <button class="avail-card" data-status="Available" onclick="selectAvail(this)">
+      <div class="avail-header"><div class="avail-dot"></div><div class="avail-title">Available</div></div>
+      <div class="avail-desc">Can complete everything planned</div>
+    </button>
+    <button class="avail-card" data-status="Modified Training" onclick="selectAvail(this)">
+      <div class="avail-header"><div class="avail-dot"></div><div class="avail-title">Modified Training</div></div>
+      <div class="avail-desc">Can train but with restrictions</div>
+    </button>
+    <button class="avail-card" data-status="Recovery Only" onclick="selectAvail(this)">
+      <div class="avail-header"><div class="avail-dot"></div><div class="avail-title">Recovery Only</div></div>
+      <div class="avail-desc">Recovery work only</div>
+    </button>
+    <button class="avail-card" data-status="Rehab" onclick="selectAvail(this)">
+      <div class="avail-header"><div class="avail-dot"></div><div class="avail-title">Rehab</div></div>
+      <div class="avail-desc">Following injury rehab plan</div>
+    </button>
+    <button class="avail-card" data-status="Unavailable" onclick="selectAvail(this)">
+      <div class="avail-header"><div class="avail-dot"></div><div class="avail-title">Unavailable</div></div>
+      <div class="avail-desc">Cannot participate</div>
+    </button>
   </div>
 
   <div class="section-divider">Notes</div>
-  <textarea class="notes-input" id="notes-input" placeholder="Any pain, restriction, or context for the physio? (optional)"></textarea>
-  <button class="submit-btn" id="submit-btn" onclick="submitWellness()">SUBMIT CHECK-IN</button>
+  <textarea class="notes-input" id="morning-notes" placeholder="Any pain, restriction, or context for the physio? (optional)"></textarea>
+  <button class="submit-btn" id="morning-submit-btn" onclick="submitMorning()">SUBMIT MORNING CHECK-IN</button>
 </div>
 
-<!-- SCREEN 3: SUCCESS -->
+<!-- ── SCREEN 4: Evening form ── -->
+<div class="screen" id="screen-evening">
+  <div class="form-header">
+    <button class="back-btn" onclick="showScreen('screen-type')">← Back</button>
+    <div class="player-tag" id="selected-name-evening"></div>
+    <span class="session-badge badge-evening">Evening</span>
+  </div>
+  <div class="screen-title">HOW WAS<br>YOUR SESSION?</div>
+  <div style="height:16px;"></div>
+
+  <div class="question">
+    <div class="q-label">🔥 Session Intensity (RPE)<span class="q-score" id="score-rpe" style="color:var(--yellow);">5</span></div>
+    <div class="q-hint">How intense was today's session overall?</div>
+    <input type="range" min="1" max="10" value="5" id="slider-rpe" oninput="updateRPE(this.value)">
+    <div class="slider-labels"><span>Very Easy</span><span>Maximal</span></div>
+    <div class="rpe-interp">
+      <span class="rpe-tag" data-min="1" data-max="2">1–2 Recovery</span>
+      <span class="rpe-tag" data-min="3" data-max="4">3–4 Easy</span>
+      <span class="rpe-tag" data-min="5" data-max="6">5–6 Moderate</span>
+      <span class="rpe-tag" data-min="7" data-max="8">7–8 Hard</span>
+      <span class="rpe-tag" data-min="9" data-max="9">9 Very Hard</span>
+      <span class="rpe-tag" data-min="10" data-max="10">10 Maximal</span>
+    </div>
+  </div>
+
+  <!-- Fast bowler section — shown only if fast bowler -->
+  <div id="evening-bowler-section" style="display:none;">
+    <div class="section-divider">Bowling</div>
+
+    <div class="question">
+      <div class="q-label" style="margin-bottom:10px;">Did you bowl today?</div>
+      <div class="toggle-row">
+        <button class="toggle-btn yes" id="bowl-yes" onclick="setBowled(true)">Yes</button>
+        <button class="toggle-btn no"  id="bowl-no"  onclick="setBowled(false)">No</button>
+      </div>
+    </div>
+
+    <div id="bowling-details" style="display:none;">
+      <div class="question">
+        <div class="q-label" style="margin-bottom:10px;">Bowling Volume (balls)</div>
+        <div class="radio-grid" id="volume-options">
+          <button class="radio-opt" data-val="&lt;24"  onclick="selectRadio('volume',this)">&lt; 24 balls</button>
+          <button class="radio-opt" data-val="24-36"  onclick="selectRadio('volume',this)">24 – 36 balls</button>
+          <button class="radio-opt" data-val="36-48"  onclick="selectRadio('volume',this)">36 – 48 balls</button>
+          <button class="radio-opt" data-val="48-60"  onclick="selectRadio('volume',this)">48 – 60 balls</button>
+          <button class="radio-opt" data-val="60+"    onclick="selectRadio('volume',this)">60+ balls</button>
+        </div>
+      </div>
+
+      <div class="question">
+        <div class="q-label" style="margin-bottom:10px;">Bowling Intensity</div>
+        <div class="radio-grid" id="intensity-options">
+          <button class="radio-opt" data-val="Low"      onclick="selectRadio('intensity',this)">Low</button>
+          <button class="radio-opt" data-val="Moderate" onclick="selectRadio('intensity',this)">Moderate</button>
+          <button class="radio-opt" data-val="High"     onclick="selectRadio('intensity',this)">High</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <button class="submit-btn" id="evening-submit-btn" onclick="submitEvening()">SUBMIT EVENING CHECK-IN</button>
+</div>
+
+<!-- ── SCREEN 5: Success ── -->
 <div class="screen" id="screen-success">
   <div class="success-icon">✅</div>
   <div class="success-title">SUBMITTED!</div>
   <div class="success-sub" id="success-sub">Check-in recorded.</div>
   <div class="success-summary" id="success-summary"></div>
-  <button class="another-btn" onclick="resetForm()">Submit for another player</button>
+  <button class="another-btn" id="done-btn" onclick="handleDone()">Done</button>
 </div>
 
 <script>
+// ── Init ──────────────────────────────────────────────────────────────────────
 document.getElementById('top-date').textContent = new Date().toLocaleDateString('en-GB', {
   weekday: 'short', day: 'numeric', month: 'short'
 });
 
-// Players injected server-side from roster.csv
-const PLAYERS = {{ players | tojson }};
+const PLAYERS      = {{ players | tojson }};
 const FAST_BOWLERS = new Set({{ fast_bowlers | tojson }});
+const PRESELECTED  = {{ preselected_player | tojson }};
 
-let selectedPlayer = null;
-const scores = { sleep:3, energy:3, soreness:3, mood:3, stress:3, hamstring:1, groin:1, back:1 };
+let selectedPlayer = null; // { name, isFastBowler }
+let sessionType    = null; // 'morning' | 'evening'
 
+// Morning state
+const morningScores = { sleep: 3, energy: 3, soreness: 3 };
+let selectedTightness = new Set();
+let selectedAvail     = null;
+
+// Evening state
+let eveningRPE       = 5;
+let didBowl          = null;
+let selectedVolume   = null;
+let selectedIntensity= null;
+
+// ── Player grid ───────────────────────────────────────────────────────────────
 function renderPlayerGrid() {
   const grid = document.getElementById('player-grid');
   if (!PLAYERS.length) {
-    grid.innerHTML = '<div class="grid-message">No players in roster yet. Ask your coach to add players via the dashboard.</div>';
+    grid.innerHTML = '<div class="grid-message">No players in roster yet.<br>Ask your coach to add players via the dashboard.</div>';
     return;
   }
   grid.innerHTML = PLAYERS.map((p, i) =>
@@ -253,21 +448,65 @@ function renderPlayerGrid() {
 renderPlayerGrid();
 
 function selectPlayer(name) {
-  selectedPlayer = { name, isBowler: FAST_BOWLERS.has(name) };
-  document.getElementById('selected-name').textContent = name;
-  document.getElementById('bowler-section').style.display = selectedPlayer.isBowler ? 'block' : 'none';
+  const found = PLAYERS.find(p => p.name === name);
+  const isFastBowler = FAST_BOWLERS.has(name);
+  selectedPlayer = { name, isFastBowler };
+  document.getElementById('selected-name-type').textContent    = name;
+  document.getElementById('selected-name-morning').textContent = name;
+  document.getElementById('selected-name-evening').textContent = name;
 
-  ['sleep','energy','soreness','mood','stress'].forEach(k => { scores[k] = 3; document.getElementById('slider-'+k).value = 3; updateSlider(k, 3); });
-  ['hamstring','groin','back'].forEach(k => { scores[k] = 1; document.getElementById('slider-'+k).value = 1; updateSlider(k, 1); });
-  document.getElementById('notes-input').value = '';
-  showScreen('screen-form');
+  // Show/hide fast bowler section on evening form
+  document.getElementById('evening-bowler-section').style.display = isFastBowler ? 'block' : 'none';
+
+  showScreen('screen-type');
+}
+
+function goToPlayerSelect() {
+  if (PRESELECTED) return; // on a personal link, no going "back" to player list
+  showScreen('screen-player');
+}
+
+// Hide back button on type screen when player is pre-selected
+if (PRESELECTED) {
+  document.getElementById('back-type').style.display = 'none';
+}
+
+// ── Session type ──────────────────────────────────────────────────────────────
+function startMorning() {
+  sessionType = 'morning';
+  resetMorningForm();
+  showScreen('screen-morning');
+}
+
+function startEvening() {
+  sessionType = 'evening';
+  resetEveningForm();
+  showScreen('screen-evening');
+}
+
+// ── Morning form ──────────────────────────────────────────────────────────────
+function resetMorningForm() {
+  ['sleep','energy','soreness'].forEach(k => {
+    const v = k === 'soreness' ? 3 : 3;
+    morningScores[k] = v;
+    document.getElementById('slider-' + k).value = v;
+    updateSlider(k, v);
+  });
+  selectedTightness = new Set();
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
+  selectedAvail = null;
+  document.querySelectorAll('.avail-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById('morning-notes').value = '';
+  const btn = document.getElementById('morning-submit-btn');
+  btn.disabled = false;
+  btn.textContent = 'SUBMIT MORNING CHECK-IN';
 }
 
 function updateSlider(key, val) {
-  scores[key] = parseInt(val);
+  morningScores[key] = parseInt(val);
   const el = document.getElementById('score-' + key);
   el.textContent = val;
-  const inverse = ['soreness','hamstring','groin','back'].includes(key);
+  const inverse = key === 'soreness';
   const v = parseInt(val);
   const color = inverse
     ? (v >= 4 ? 'var(--red)' : v === 3 ? 'var(--yellow)' : 'var(--green)')
@@ -278,24 +517,48 @@ function updateSlider(key, val) {
     `linear-gradient(to right, ${color} 0%, ${color} ${pct}%, var(--border) ${pct}%, var(--border) 100%)`;
 }
 
-function goBack() { showScreen('screen-player'); }
+function toggleChip(btn) {
+  const loc = btn.dataset.loc;
+  if (loc === 'None') {
+    // selecting None clears all others
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
+    btn.classList.add('selected');
+    selectedTightness = new Set(['None']);
+  } else {
+    // deselect None if a specific area is chosen
+    document.querySelectorAll('.chip-none').forEach(c => c.classList.remove('selected'));
+    selectedTightness.delete('None');
+    if (btn.classList.contains('selected')) {
+      btn.classList.remove('selected');
+      selectedTightness.delete(loc);
+    } else {
+      btn.classList.add('selected');
+      selectedTightness.add(loc);
+    }
+  }
+}
 
-async function submitWellness() {
-  const btn = document.getElementById('submit-btn');
+function selectAvail(btn) {
+  document.querySelectorAll('.avail-card').forEach(c => c.classList.remove('selected'));
+  btn.classList.add('selected');
+  selectedAvail = btn.dataset.status;
+}
+
+async function submitMorning() {
+  const btn = document.getElementById('morning-submit-btn');
   btn.disabled = true;
   btn.textContent = 'SUBMITTING...';
 
+  const tightnessStr = Array.from(selectedTightness).filter(s => s !== 'None').join(',') || 'None';
+
   const payload = {
-    player_name: selectedPlayer.name,
-    sleep_quality: scores.sleep,
-    energy_level: scores.energy,
-    body_soreness: scores.soreness,
-    mood: scores.mood,
-    stress_level: scores.stress,
-    hamstring_tightness: selectedPlayer.isBowler ? scores.hamstring : null,
-    groin_stiffness: selectedPlayer.isBowler ? scores.groin : null,
-    lower_back_stiffness: selectedPlayer.isBowler ? scores.back : null,
-    notes: document.getElementById('notes-input').value,
+    player_name:         selectedPlayer.name,
+    sleep_quality:       morningScores.sleep,
+    energy_level:        morningScores.energy,
+    body_soreness:       morningScores.soreness,
+    tightness_locations: tightnessStr,
+    availability_status: selectedAvail || 'Available',
+    notes:               document.getElementById('morning-notes').value,
   };
 
   try {
@@ -305,58 +568,180 @@ async function submitWellness() {
       body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error('Server error');
-    showSuccess();
-  } catch (err) {
-    alert('Submission failed. Please check your connection and try again.');
+    showMorningSuccess(payload);
+  } catch {
+    alert('Submission failed. Check your connection and try again.');
     btn.disabled = false;
-    btn.textContent = 'SUBMIT CHECK-IN';
+    btn.textContent = 'SUBMIT MORNING CHECK-IN';
   }
 }
 
-function showSuccess() {
-  document.getElementById('success-sub').textContent = `${selectedPlayer.name} — check-in recorded.`;
-  const metrics = [
-    { label: '😴 Sleep Quality', val: scores.sleep,    inverse: false },
-    { label: '⚡ Energy Level',  val: scores.energy,   inverse: false },
-    { label: '💪 Body Soreness', val: scores.soreness, inverse: true  },
-    { label: '🧠 Mood',          val: scores.mood,     inverse: false },
-    { label: '😤 Stress',        val: scores.stress,   inverse: true  },
+function showMorningSuccess(payload) {
+  document.getElementById('success-sub').textContent = `${selectedPlayer.name} — morning check-in recorded.`;
+
+  const scoreColor = (v, inverse) => inverse
+    ? (v <= 2 ? 'var(--green)' : v >= 4 ? 'var(--red)' : 'var(--yellow)')
+    : (v >= 4 ? 'var(--green)' : v <= 2 ? 'var(--red)' : 'var(--yellow)');
+
+  const rows = [
+    ['😴 Sleep Quality', `${payload.sleep_quality}/5`, scoreColor(payload.sleep_quality, false)],
+    ['⚡ Energy Level',  `${payload.energy_level}/5`,  scoreColor(payload.energy_level,  false)],
+    ['💪 Body Soreness', `${payload.body_soreness}/5`, scoreColor(payload.body_soreness,  true)],
+    ['📍 Tightness',     payload.tightness_locations || 'None', 'var(--text)'],
+    ['📋 Availability',  payload.availability_status,  'var(--accent)'],
   ];
-  if (selectedPlayer.isBowler) {
-    metrics.push(
-      { label: '🦵 Hamstring', val: scores.hamstring, inverse: true },
-      { label: '🦵 Groin',     val: scores.groin,     inverse: true },
-      { label: '🔙 Lower Back', val: scores.back,     inverse: true },
-    );
-  }
-  document.getElementById('success-summary').innerHTML = metrics.map(m => {
-    const v = m.val;
-    const color = m.inverse
-      ? (v <= 2 ? 'var(--green)' : v >= 4 ? 'var(--red)' : 'var(--yellow)')
-      : (v >= 4 ? 'var(--green)' : v <= 2 ? 'var(--red)' : 'var(--yellow)');
-    return `<div class="summary-row">
-      <span class="summary-label">${m.label}</span>
-      <span class="summary-val" style="color:${color}">${v}/5</span>
-    </div>`;
-  }).join('');
+
+  document.getElementById('success-summary').innerHTML = rows.map(([label, val, color]) =>
+    `<div class="summary-row">
+      <span class="summary-label">${label}</span>
+      <span class="summary-val" style="color:${color}">${val}</span>
+    </div>`
+  ).join('');
   showScreen('screen-success');
 }
 
-function resetForm() {
-  selectedPlayer = null;
-  document.getElementById('submit-btn').disabled = false;
-  document.getElementById('submit-btn').textContent = 'SUBMIT CHECK-IN';
-  showScreen('screen-player');
+// ── Evening form ──────────────────────────────────────────────────────────────
+function resetEveningForm() {
+  eveningRPE = 5;
+  document.getElementById('slider-rpe').value = 5;
+  updateRPE(5);
+  didBowl = null;
+  document.getElementById('bowl-yes').classList.remove('selected');
+  document.getElementById('bowl-no').classList.remove('selected');
+  document.getElementById('bowling-details').style.display = 'none';
+  selectedVolume    = null;
+  selectedIntensity = null;
+  document.querySelectorAll('#volume-options .radio-opt, #intensity-options .radio-opt')
+    .forEach(el => el.classList.remove('selected'));
+  const btn = document.getElementById('evening-submit-btn');
+  btn.disabled = false;
+  btn.textContent = 'SUBMIT EVENING CHECK-IN';
 }
 
+function updateRPE(val) {
+  eveningRPE = parseInt(val);
+  const el = document.getElementById('score-rpe');
+  el.textContent = val;
+  const v = parseInt(val);
+  const color = v <= 2 ? 'var(--green)' : v <= 4 ? 'var(--accent)' : v <= 6 ? 'var(--yellow)' : v <= 8 ? 'var(--red)' : '#ff6b6b';
+  el.style.color = color;
+  const pct = ((v - 1) / 9) * 100;
+  document.getElementById('slider-rpe').style.background =
+    `linear-gradient(to right, ${color} 0%, ${color} ${pct}%, var(--border) ${pct}%, var(--border) 100%)`;
+
+  // highlight active RPE tag
+  document.querySelectorAll('.rpe-tag').forEach(tag => {
+    const min = parseInt(tag.dataset.min), max = parseInt(tag.dataset.max);
+    tag.classList.toggle('active', v >= min && v <= max);
+    tag.style.color = (v >= min && v <= max) ? color : '';
+    tag.style.borderColor = (v >= min && v <= max) ? color : '';
+  });
+}
+
+function setBowled(val) {
+  didBowl = val;
+  document.getElementById('bowl-yes').classList.toggle('selected', val === true);
+  document.getElementById('bowl-no').classList.toggle('selected',  val === false);
+  document.getElementById('bowling-details').style.display = val ? 'block' : 'none';
+  if (!val) { selectedVolume = null; selectedIntensity = null; }
+}
+
+function selectRadio(group, btn) {
+  const container = group === 'volume' ? 'volume-options' : 'intensity-options';
+  document.querySelectorAll(`#${container} .radio-opt`).forEach(el => el.classList.remove('selected'));
+  btn.classList.add('selected');
+  if (group === 'volume')    selectedVolume    = btn.dataset.val;
+  if (group === 'intensity') selectedIntensity = btn.dataset.val;
+}
+
+async function submitEvening() {
+  const btn = document.getElementById('evening-submit-btn');
+
+  if (selectedPlayer.isFastBowler && didBowl === null) {
+    alert('Please indicate whether you bowled today.');
+    return;
+  }
+  if (didBowl && (!selectedVolume || !selectedIntensity)) {
+    alert('Please select your bowling volume and intensity.');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'SUBMITTING...';
+
+  const payload = {
+    player_name:       selectedPlayer.name,
+    session_rpe:       eveningRPE,
+    did_bowl:          !!didBowl,
+    bowling_volume:    didBowl ? selectedVolume   : null,
+    bowling_intensity: didBowl ? selectedIntensity: null,
+  };
+
+  try {
+    const res = await fetch('/submit/evening', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error('Server error');
+    showEveningSuccess(payload);
+  } catch {
+    alert('Submission failed. Check your connection and try again.');
+    btn.disabled = false;
+    btn.textContent = 'SUBMIT EVENING CHECK-IN';
+  }
+}
+
+const RPE_LABELS = ['','Recovery','Recovery','Easy','Easy','Moderate','Moderate','Hard','Hard','Very Hard','Maximal'];
+
+function showEveningSuccess(payload) {
+  document.getElementById('success-sub').textContent = `${selectedPlayer.name} — evening check-in recorded.`;
+
+  const rows = [
+    ['🔥 Session RPE', `${payload.session_rpe}/10 — ${RPE_LABELS[payload.session_rpe]}`, 'var(--accent)'],
+  ];
+  if (selectedPlayer.isFastBowler) {
+    rows.push(['🏏 Bowled today', payload.did_bowl ? 'Yes' : 'No', 'var(--text)']);
+    if (payload.did_bowl) {
+      rows.push(['📊 Volume',    payload.bowling_volume,    'var(--text)']);
+      rows.push(['⚡ Intensity', payload.bowling_intensity, 'var(--text)']);
+    }
+  }
+
+  document.getElementById('success-summary').innerHTML = rows.map(([label, val, color]) =>
+    `<div class="summary-row">
+      <span class="summary-label">${label}</span>
+      <span class="summary-val" style="color:${color}">${val}</span>
+    </div>`
+  ).join('');
+  showScreen('screen-success');
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────────
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   window.scrollTo(0, 0);
 }
 
-['sleep','energy','soreness','mood','stress'].forEach(k => updateSlider(k, 3));
-['hamstring','groin','back'].forEach(k => updateSlider(k, 1));
+function handleDone() {
+  if (PRESELECTED) {
+    // Personal link — go back to their morning/evening choice
+    selectPlayer(PRESELECTED);
+  } else {
+    selectedPlayer = null;
+    showScreen('screen-player');
+  }
+}
+
+// ── Auto-select preselected player ───────────────────────────────────────────
+if (PRESELECTED) {
+  selectPlayer(PRESELECTED);
+}
+
+// Init sliders
+['sleep','energy','soreness'].forEach(k => updateSlider(k, 3));
+updateRPE(5);
 </script>
 </body>
 </html>
