@@ -36,8 +36,9 @@ EVENING_CSV  = DATA_DIR / "evening_checkin.csv"
 WELLNESS_COLS = [
     "timestamp", "player_name", "sleep_quality", "energy_level", "body_soreness",
     "tightness_locations", "availability_status", "notes",
+    "mood", "stress", "sleep_hours", "is_sick",
     # kept for backward compat with data logged before the form update
-    "mood", "stress_level", "hamstring_tightness", "groin_stiffness", "lower_back_stiffness",
+    "stress_level", "hamstring_tightness", "groin_stiffness", "lower_back_stiffness",
 ]
 ROSTER_COLS = [
     "name", "role", "batting_style", "bowling_style", "dominant_side",
@@ -48,6 +49,7 @@ SESSIONS_COLS = ["timestamp", "player_name", "session_type", "duration_mins", "r
 EVENING_COLS  = [
     "timestamp", "player_name", "session_rpe",
     "did_bowl", "bowling_volume", "bowling_intensity",
+    "did_bat", "balls_faced",
 ]
 
 
@@ -92,8 +94,11 @@ class WellnessSubmission(BaseModel):
     tightness_locations: Optional[str] = ""
     availability_status: Optional[str] = "Available"
     notes: Optional[str] = ""
-    # backward compat — not collected by new form
     mood: Optional[int] = None
+    stress: Optional[int] = None
+    sleep_hours: Optional[float] = None
+    is_sick: Optional[bool] = None
+    # backward compat — not collected by new form
     stress_level: Optional[int] = None
     hamstring_tightness: Optional[int] = None
     groin_stiffness: Optional[int] = None
@@ -106,6 +111,8 @@ class EveningSubmission(BaseModel):
     did_bowl: bool = False
     bowling_volume: Optional[str] = None
     bowling_intensity: Optional[str] = None
+    did_bat: bool = False
+    balls_faced: Optional[str] = None
 
 
 class SessionSubmission(BaseModel):

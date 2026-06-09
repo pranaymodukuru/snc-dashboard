@@ -83,7 +83,8 @@ require_auth()
 WELLNESS_COLS = [
     "timestamp","player_name","sleep_quality","energy_level","body_soreness",
     "tightness_locations","availability_status","notes",
-    "mood","stress_level","hamstring_tightness","groin_stiffness","lower_back_stiffness",
+    "mood","stress","sleep_hours","is_sick",
+    "stress_level","hamstring_tightness","groin_stiffness","lower_back_stiffness",
 ]
 ROSTER_COLS   = [
     "name","role","batting_style","bowling_style","dominant_side",
@@ -91,7 +92,7 @@ ROSTER_COLS   = [
     "injury_history","current_status","status_notes",
 ]
 SESSIONS_COLS = ["timestamp","player_name","session_type","duration_mins","rpe","notes"]
-EVENING_COLS  = ["timestamp","player_name","session_rpe","did_bowl","bowling_volume","bowling_intensity"]
+EVENING_COLS  = ["timestamp","player_name","session_rpe","did_bowl","bowling_volume","bowling_intensity","did_bat","balls_faced"]
 
 RPE_LABELS = {
     (1, 2):  ("Recovery",  "#22c55e"),
@@ -442,12 +443,29 @@ def render_overview():
                         flags.append("Groin tightness")
                     if pd.notna(row.get("lower_back_stiffness")) and row["lower_back_stiffness"] >= 4:
                         flags.append("Lower back tightness")
+                if str(row.get("is_sick", "")).lower() in ("true", "1", "yes"):
+                    flags.append("Sick today")
                 if row.get("sleep_quality", 5) <= 2:
-                    flags.append("Low sleep")
+                    flags.append("Low sleep quality")
                 if row.get("energy_level", 5) <= 2:
                     flags.append("Low energy")
                 if row.get("body_soreness", 1) >= 4:
                     flags.append("High soreness")
+                try:
+                    if float(row.get("mood") or 5) <= 2:
+                        flags.append("Low mood")
+                except (TypeError, ValueError):
+                    pass
+                try:
+                    if float(row.get("stress") or 1) >= 4:
+                        flags.append("High stress")
+                except (TypeError, ValueError):
+                    pass
+                try:
+                    if float(row.get("sleep_hours") or 8) < 6:
+                        flags.append(f"Low sleep ({row.get('sleep_hours')}h)")
+                except (TypeError, ValueError):
+                    pass
                 avail = str(row.get("availability_status") or "").strip()
                 if avail and avail not in ("Available", ""):
                     flags.append(f"Self-reported: {avail}")
@@ -548,11 +566,13 @@ def render_raw_data():
         else:
             df_w = _date_filter(wellness, "wellness")
             keep = ["date","player_name","sleep_quality","energy_level","body_soreness",
+                    "mood","stress","sleep_hours","is_sick",
                     "tightness_locations","availability_status","notes"]
             df_w = df_w[[c for c in keep if c in df_w.columns]].rename(columns={
                 "player_name":"Player","sleep_quality":"Sleep","energy_level":"Energy",
-                "body_soreness":"Soreness","tightness_locations":"Tightness",
-                "availability_status":"Availability",
+                "body_soreness":"Soreness","mood":"Mood","stress":"Stress",
+                "sleep_hours":"Sleep Hrs","is_sick":"Sick",
+                "tightness_locations":"Tightness","availability_status":"Availability",
             })
 
             def _bg(val, inv=False):
@@ -581,8 +601,13 @@ def render_raw_data():
             st.info("No evening check-in data yet.")
         else:
             df_e = _date_filter(evening, "evening")
-            st.dataframe(df_e.drop(columns=["timestamp"], errors="ignore"),
-                         use_container_width=True, height=320)
+            keep_e = ["date","player_name","session_rpe","did_bowl","bowling_volume","bowling_intensity","did_bat","balls_faced"]
+            df_e_display = df_e[[c for c in keep_e if c in df_e.columns]].rename(columns={
+                "player_name":"Player","session_rpe":"RPE","did_bowl":"Bowled",
+                "bowling_volume":"Bowl Vol","bowling_intensity":"Bowl Int",
+                "did_bat":"Batted","balls_faced":"Balls Faced",
+            })
+            st.dataframe(df_e_display, use_container_width=True, height=320)
             _export_btn(df_e, "evening_checkins")
 
     # ── Session load ─────────────────────────────────────────────────────────
@@ -912,6 +937,75 @@ def render_player_load():
                 st.plotly_chart(fig_ec, use_container_width=True, key=f"ec_line_{sel}")
 
     # ════════════════════════════════════════════════════════════════════════
+    # BATTING LOAD SECTION  (all players, sourced from evening check-ins)
+    # ════════════════════════════════════════════════════════════════════════
+    st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+    st.divider()
+    st.markdown("### Batting Load")
+
+    pec_bat = pd.DataFrame()
+    if not pec.empty and "did_bat" in pec.columns:
+        pec_bat = pec[pec["did_bat"].astype(str).str.lower().isin(["true", "1", "yes"])].copy()
+
+    if pec_bat.empty:
+        st.info(f"No batting data for {sel} yet.")
+    else:
+        BALLS_ORDER = {"<24": 1, "24-36": 2, "36-48": 3, "48-60": 4, "60+": 5}
+        BALLS_COLOR = {"<24": "#22c55e", "24-36": "#00c2ff", "36-48": "#f59e0b", "48-60": "#ef4444", "60+": "#ff4444"}
+
+        pec_bat_week  = pec_bat[pec_bat["timestamp"] >= week_ago]
+        pec_bat_month = pec_bat[pec_bat["timestamp"] >= month_ago]
+
+        batting_days_week = len(pec_bat_week["date"].unique())
+        if not pec_bat_week.empty and "balls_faced" in pec_bat_week.columns:
+            dominant_balls = pec_bat_week["balls_faced"].dropna().mode()
+            dominant_balls = dominant_balls.iloc[0] if not dominant_balls.empty else "—"
+        else:
+            dominant_balls = "—"
+        balls_color = BALLS_COLOR.get(dominant_balls, "#6b7a90")
+
+        bb1, bb2 = st.columns(2)
+        with bb1: st.markdown(_metric_card("Batting days (7d)", str(batting_days_week)), unsafe_allow_html=True)
+        with bb2: st.markdown(_metric_card("Typical balls faced (7d)", dominant_balls, color=balls_color), unsafe_allow_html=True)
+
+        st.markdown("<div style='height:20px;'></div>", unsafe_allow_html=True)
+
+        if not pec_bat_month.empty and "balls_faced" in pec_bat_month.columns:
+            bat_daily = pec_bat_month.groupby("date").agg(
+                balls=("balls_faced", lambda x: x.mode().iloc[0] if not x.dropna().empty else "<24"),
+                sessions=("balls_faced", "count"),
+            ).reset_index()
+            bat_daily["date_str"] = bat_daily["date"].astype(str)
+            bat_daily["color"] = bat_daily["balls"].map(BALLS_COLOR).fillna("#6b7a90")
+            bat_daily["rank"]  = bat_daily["balls"].map(BALLS_ORDER).fillna(1)
+
+            fig_bat = go.Figure()
+            for balls_cat, color in BALLS_COLOR.items():
+                subset = bat_daily[bat_daily["balls"] == balls_cat]
+                if not subset.empty:
+                    fig_bat.add_trace(go.Bar(
+                        x=subset["date_str"], y=subset["rank"],
+                        name=balls_cat, marker_color=color,
+                        hovertemplate="<b>%{x}</b><br>Balls faced: " + balls_cat + "<extra></extra>",
+                    ))
+            fig_bat.update_layout(
+                **{**DARK_LAYOUT, "margin": dict(t=16, b=24, l=8, r=8)},
+                height=220, barmode="group",
+                title=dict(text="Batting Days — Balls Faced (28d)", font=dict(size=13), x=0),
+                xaxis=dict(gridcolor="#1f2530"),
+                yaxis=dict(gridcolor="#1f2530", tickvals=[1,2,3,4,5],
+                           ticktext=["<24","24-36","36-48","48-60","60+"], title=""),
+                legend=dict(orientation="h", y=-0.3),
+            )
+            st.plotly_chart(fig_bat, use_container_width=True, key=f"bat_load_{sel}")
+
+        with st.expander("Recent Batting Check-ins", expanded=False):
+            display_bat = pec_bat.sort_values("timestamp", ascending=False).head(20)[
+                ["date", "balls_faced", "session_rpe"]
+            ].rename(columns={"date": "Date", "balls_faced": "Balls Faced", "session_rpe": "RPE"})
+            st.dataframe(display_bat, use_container_width=True, height=280)
+
+    # ════════════════════════════════════════════════════════════════════════
     # BOWLING LOAD SECTION  (fast bowlers only, sourced from evening check-ins)
     # ════════════════════════════════════════════════════════════════════════
     if not is_fb:
@@ -1099,6 +1193,31 @@ def render_squad():
             </div>
             """, unsafe_allow_html=True)
 
+            # Extra wellness metrics
+            _mood        = last.get("mood")
+            _stress      = last.get("stress")
+            _sleep_hours = last.get("sleep_hours")
+            _is_sick     = str(last.get("is_sick", "")).lower() in ("true", "1", "yes")
+            extra_items = []
+            if pd.notna(_mood) and _mood != "":
+                mood_color = "#22c55e" if float(_mood) >= 4 else ("#ef4444" if float(_mood) <= 2 else "#f59e0b")
+                extra_items.append(f'<span style="color:#6b7a90;">Mood</span> <span style="font-weight:600;color:{mood_color};">{int(float(_mood))}/5</span>')
+            if pd.notna(_stress) and _stress != "":
+                stress_color = "#ef4444" if float(_stress) >= 4 else ("#22c55e" if float(_stress) <= 2 else "#f59e0b")
+                extra_items.append(f'<span style="color:#6b7a90;">Stress</span> <span style="font-weight:600;color:{stress_color};">{int(float(_stress))}/5</span>')
+            if pd.notna(_sleep_hours) and _sleep_hours != "":
+                sh_color = "#22c55e" if float(_sleep_hours) >= 8 else ("#ef4444" if float(_sleep_hours) < 6 else "#f59e0b")
+                extra_items.append(f'<span style="color:#6b7a90;">Sleep</span> <span style="font-weight:600;color:{sh_color};">{float(_sleep_hours):.0f}h</span>')
+            sick_color = "#ef4444" if _is_sick else "#22c55e"
+            extra_items.append(f'<span style="color:#6b7a90;">Sick</span> <span style="font-weight:600;color:{sick_color};">{"Yes" if _is_sick else "No"}</span>')
+            if extra_items:
+                st.markdown(
+                    '<div style="display:flex;flex-wrap:wrap;gap:16px;justify-content:center;margin-bottom:12px;">' +
+                    "".join(f'<div style="text-align:center;font-size:13px;">{item}</div>' for item in extra_items) +
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+
             r_labels = ["Sleep", "Energy", "Soreness"]
             r_vals   = [sleep, energy, soreness]
             fig_radar = go.Figure(go.Scatterpolar(
@@ -1141,6 +1260,8 @@ def render_squad():
                 ("sleep_quality", "Sleep",    "#00c2ff"),
                 ("energy_level",  "Energy",   "#22c55e"),
                 ("body_soreness", "Soreness", "#f59e0b"),
+                ("mood",          "Mood",      "#a78bfa"),
+                ("stress",        "Stress",    "#f87171"),
             ]
             for col, label, color in metrics:
                 if col in trend.columns:

@@ -290,6 +290,35 @@
     <div class="slider-labels"><span>Fresh</span><span>Very Sore</span></div>
   </div>
 
+  <div class="question">
+    <div class="q-label">😊 Mood<span class="q-score" id="score-mood" style="color:var(--yellow);">3</span></div>
+    <div class="q-hint">How is your mood today?</div>
+    <input type="range" min="1" max="5" value="3" id="slider-mood" oninput="updateSlider('mood',this.value)">
+    <div class="slider-labels"><span>Very Low</span><span>Excellent</span></div>
+  </div>
+
+  <div class="question">
+    <div class="q-label">😤 Stress<span class="q-score" id="score-stress" style="color:var(--yellow);">3</span></div>
+    <div class="q-hint">How stressed do you feel? (1 = None, 5 = Very High)</div>
+    <input type="range" min="1" max="5" value="3" id="slider-stress" oninput="updateSlider('stress',this.value)">
+    <div class="slider-labels"><span>None</span><span>Very High</span></div>
+  </div>
+
+  <div class="question">
+    <div class="q-label">🕐 Hours Slept<span class="q-score" id="score-sleep-hours" style="color:var(--yellow);">7h</span></div>
+    <div class="q-hint">How many hours did you sleep last night?</div>
+    <input type="range" min="4" max="12" step="1" value="7" id="slider-sleep-hours" oninput="updateSleepHours(this.value)">
+    <div class="slider-labels"><span>4h</span><span>12h</span></div>
+  </div>
+
+  <div class="question">
+    <div class="q-label" style="margin-bottom:10px;">🤒 Are you sick today?</div>
+    <div class="toggle-row">
+      <button class="toggle-btn yes" id="sick-yes" onclick="setSick(true)">Yes</button>
+      <button class="toggle-btn no"  id="sick-no"  onclick="setSick(false)">No</button>
+    </div>
+  </div>
+
   <div class="section-divider">Tightness Location</div>
   <div class="q-hint" style="margin-bottom:10px;">Select all areas where you feel tightness (or None)</div>
   <div class="chip-group" id="tightness-chips">
@@ -392,6 +421,30 @@
     </div>
   </div>
 
+  <!-- Batting section — shown for all players -->
+  <div class="section-divider">Batting</div>
+
+  <div class="question">
+    <div class="q-label" style="margin-bottom:10px;">Did you bat today?</div>
+    <div class="toggle-row">
+      <button class="toggle-btn yes" id="bat-yes" onclick="setBatted(true)">Yes</button>
+      <button class="toggle-btn no"  id="bat-no"  onclick="setBatted(false)">No</button>
+    </div>
+  </div>
+
+  <div id="batting-details" style="display:none;">
+    <div class="question">
+      <div class="q-label" style="margin-bottom:10px;">Balls Faced</div>
+      <div class="radio-grid" id="balls-faced-options">
+        <button class="radio-opt" data-val="&lt;24"  onclick="selectRadio('balls_faced',this)">&lt; 24 balls</button>
+        <button class="radio-opt" data-val="24-36"  onclick="selectRadio('balls_faced',this)">24 – 36 balls</button>
+        <button class="radio-opt" data-val="36-48"  onclick="selectRadio('balls_faced',this)">36 – 48 balls</button>
+        <button class="radio-opt" data-val="48-60"  onclick="selectRadio('balls_faced',this)">48 – 60 balls</button>
+        <button class="radio-opt" data-val="60+"    onclick="selectRadio('balls_faced',this)">60+ balls</button>
+      </div>
+    </div>
+  </div>
+
   <button class="submit-btn" id="evening-submit-btn" onclick="submitEvening()">SUBMIT EVENING CHECK-IN</button>
 </div>
 
@@ -418,15 +471,19 @@ let selectedPlayer = null; // { name, isFastBowler }
 let sessionType    = null; // 'morning' | 'evening'
 
 // Morning state
-const morningScores = { sleep: 3, energy: 3, soreness: 3 };
+const morningScores = { sleep: 3, energy: 3, soreness: 3, mood: 3, stress: 3 };
+let sleepHours        = 7;
+let isSick            = null;
 let selectedTightness = new Set();
 let selectedAvail     = null;
 
 // Evening state
-let eveningRPE       = 5;
-let didBowl          = null;
-let selectedVolume   = null;
-let selectedIntensity= null;
+let eveningRPE         = 5;
+let didBowl            = null;
+let selectedVolume     = null;
+let selectedIntensity  = null;
+let didBat             = null;
+let selectedBallsFaced = null;
 
 // ── Player grid ───────────────────────────────────────────────────────────────
 function renderPlayerGrid() {
@@ -486,12 +543,17 @@ function startEvening() {
 
 // ── Morning form ──────────────────────────────────────────────────────────────
 function resetMorningForm() {
-  ['sleep','energy','soreness'].forEach(k => {
-    const v = k === 'soreness' ? 3 : 3;
-    morningScores[k] = v;
-    document.getElementById('slider-' + k).value = v;
-    updateSlider(k, v);
+  ['sleep','energy','soreness','mood','stress'].forEach(k => {
+    morningScores[k] = 3;
+    document.getElementById('slider-' + k).value = 3;
+    updateSlider(k, 3);
   });
+  sleepHours = 7;
+  document.getElementById('slider-sleep-hours').value = 7;
+  updateSleepHours(7);
+  isSick = null;
+  document.getElementById('sick-yes').classList.remove('selected');
+  document.getElementById('sick-no').classList.remove('selected');
   selectedTightness = new Set();
   document.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
   selectedAvail = null;
@@ -506,7 +568,7 @@ function updateSlider(key, val) {
   morningScores[key] = parseInt(val);
   const el = document.getElementById('score-' + key);
   el.textContent = val;
-  const inverse = key === 'soreness';
+  const inverse = key === 'soreness' || key === 'stress';
   const v = parseInt(val);
   const color = inverse
     ? (v >= 4 ? 'var(--red)' : v === 3 ? 'var(--yellow)' : 'var(--green)')
@@ -515,6 +577,23 @@ function updateSlider(key, val) {
   const pct = ((v - 1) / 4) * 100;
   document.getElementById('slider-' + key).style.background =
     `linear-gradient(to right, ${color} 0%, ${color} ${pct}%, var(--border) ${pct}%, var(--border) 100%)`;
+}
+
+function updateSleepHours(val) {
+  sleepHours = parseInt(val);
+  const el = document.getElementById('score-sleep-hours');
+  el.textContent = val + 'h';
+  const color = parseInt(val) >= 8 ? 'var(--green)' : parseInt(val) >= 6 ? 'var(--yellow)' : 'var(--red)';
+  el.style.color = color;
+  const pct = ((parseInt(val) - 4) / 8) * 100;
+  document.getElementById('slider-sleep-hours').style.background =
+    `linear-gradient(to right, ${color} 0%, ${color} ${pct}%, var(--border) ${pct}%, var(--border) 100%)`;
+}
+
+function setSick(val) {
+  isSick = val;
+  document.getElementById('sick-yes').classList.toggle('selected', val === true);
+  document.getElementById('sick-no').classList.toggle('selected',  val === false);
 }
 
 function toggleChip(btn) {
@@ -556,6 +635,10 @@ async function submitMorning() {
     sleep_quality:       morningScores.sleep,
     energy_level:        morningScores.energy,
     body_soreness:       morningScores.soreness,
+    mood:                morningScores.mood,
+    stress:              morningScores.stress,
+    sleep_hours:         sleepHours,
+    is_sick:             isSick === true,
     tightness_locations: tightnessStr,
     availability_status: selectedAvail || 'Available',
     notes:               document.getElementById('morning-notes').value,
@@ -587,6 +670,10 @@ function showMorningSuccess(payload) {
     ['😴 Sleep Quality', `${payload.sleep_quality}/5`, scoreColor(payload.sleep_quality, false)],
     ['⚡ Energy Level',  `${payload.energy_level}/5`,  scoreColor(payload.energy_level,  false)],
     ['💪 Body Soreness', `${payload.body_soreness}/5`, scoreColor(payload.body_soreness,  true)],
+    ['😊 Mood',          `${payload.mood}/5`,          scoreColor(payload.mood,          false)],
+    ['😤 Stress',        `${payload.stress}/5`,        scoreColor(payload.stress,         true)],
+    ['🕐 Hours Slept',   `${payload.sleep_hours}h`,    payload.sleep_hours >= 8 ? 'var(--green)' : payload.sleep_hours >= 6 ? 'var(--yellow)' : 'var(--red)'],
+    ['🤒 Sick',          payload.is_sick ? 'Yes' : 'No', payload.is_sick ? 'var(--red)' : 'var(--green)'],
     ['📍 Tightness',     payload.tightness_locations || 'None', 'var(--text)'],
     ['📋 Availability',  payload.availability_status,  'var(--accent)'],
   ];
@@ -612,6 +699,13 @@ function resetEveningForm() {
   selectedVolume    = null;
   selectedIntensity = null;
   document.querySelectorAll('#volume-options .radio-opt, #intensity-options .radio-opt')
+    .forEach(el => el.classList.remove('selected'));
+  didBat = null;
+  document.getElementById('bat-yes').classList.remove('selected');
+  document.getElementById('bat-no').classList.remove('selected');
+  document.getElementById('batting-details').style.display = 'none';
+  selectedBallsFaced = null;
+  document.querySelectorAll('#balls-faced-options .radio-opt')
     .forEach(el => el.classList.remove('selected'));
   const btn = document.getElementById('evening-submit-btn');
   btn.disabled = false;
@@ -646,12 +740,22 @@ function setBowled(val) {
   if (!val) { selectedVolume = null; selectedIntensity = null; }
 }
 
+function setBatted(val) {
+  didBat = val;
+  document.getElementById('bat-yes').classList.toggle('selected', val === true);
+  document.getElementById('bat-no').classList.toggle('selected',  val === false);
+  document.getElementById('batting-details').style.display = val ? 'block' : 'none';
+  if (!val) { selectedBallsFaced = null; }
+}
+
 function selectRadio(group, btn) {
-  const container = group === 'volume' ? 'volume-options' : 'intensity-options';
+  const containerMap = { volume: 'volume-options', intensity: 'intensity-options', balls_faced: 'balls-faced-options' };
+  const container = containerMap[group];
   document.querySelectorAll(`#${container} .radio-opt`).forEach(el => el.classList.remove('selected'));
   btn.classList.add('selected');
-  if (group === 'volume')    selectedVolume    = btn.dataset.val;
-  if (group === 'intensity') selectedIntensity = btn.dataset.val;
+  if (group === 'volume')     selectedVolume     = btn.dataset.val;
+  if (group === 'intensity')  selectedIntensity  = btn.dataset.val;
+  if (group === 'balls_faced') selectedBallsFaced = btn.dataset.val;
 }
 
 async function submitEvening() {
@@ -665,6 +769,14 @@ async function submitEvening() {
     alert('Please select your bowling volume and intensity.');
     return;
   }
+  if (didBat === null) {
+    alert('Please indicate whether you batted today.');
+    return;
+  }
+  if (didBat && !selectedBallsFaced) {
+    alert('Please select how many balls you faced.');
+    return;
+  }
 
   btn.disabled = true;
   btn.textContent = 'SUBMITTING...';
@@ -673,8 +785,10 @@ async function submitEvening() {
     player_name:       selectedPlayer.name,
     session_rpe:       eveningRPE,
     did_bowl:          !!didBowl,
-    bowling_volume:    didBowl ? selectedVolume   : null,
-    bowling_intensity: didBowl ? selectedIntensity: null,
+    bowling_volume:    didBowl ? selectedVolume    : null,
+    bowling_intensity: didBowl ? selectedIntensity : null,
+    did_bat:           !!didBat,
+    balls_faced:       didBat  ? selectedBallsFaced : null,
   };
 
   try {
@@ -703,9 +817,13 @@ function showEveningSuccess(payload) {
   if (selectedPlayer.isFastBowler) {
     rows.push(['🏏 Bowled today', payload.did_bowl ? 'Yes' : 'No', 'var(--text)']);
     if (payload.did_bowl) {
-      rows.push(['📊 Volume',    payload.bowling_volume,    'var(--text)']);
-      rows.push(['⚡ Intensity', payload.bowling_intensity, 'var(--text)']);
+      rows.push(['📊 Bowl Volume',    payload.bowling_volume,    'var(--text)']);
+      rows.push(['⚡ Bowl Intensity', payload.bowling_intensity, 'var(--text)']);
     }
+  }
+  rows.push(['🏏 Batted today', payload.did_bat ? 'Yes' : 'No', 'var(--text)']);
+  if (payload.did_bat) {
+    rows.push(['📊 Balls Faced', payload.balls_faced, 'var(--accent)']);
   }
 
   document.getElementById('success-summary').innerHTML = rows.map(([label, val, color]) =>
@@ -740,7 +858,8 @@ if (PRESELECTED) {
 }
 
 // Init sliders
-['sleep','energy','soreness'].forEach(k => updateSlider(k, 3));
+['sleep','energy','soreness','mood','stress'].forEach(k => updateSlider(k, 3));
+updateSleepHours(7);
 updateRPE(5);
 </script>
 </body>
