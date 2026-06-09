@@ -322,12 +322,16 @@
   <div class="section-divider">Tightness Location</div>
   <div class="q-hint" style="margin-bottom:10px;">Select all areas where you feel tightness (or None)</div>
   <div class="chip-group" id="tightness-chips">
-    <button class="chip" data-loc="Hamstring" onclick="toggleChip(this)">Hamstring</button>
-    <button class="chip" data-loc="Groin"     onclick="toggleChip(this)">Groin</button>
-    <button class="chip" data-loc="Back"      onclick="toggleChip(this)">Back</button>
-    <button class="chip" data-loc="Shoulder"  onclick="toggleChip(this)">Shoulder</button>
-    <button class="chip" data-loc="Knee"      onclick="toggleChip(this)">Knee</button>
-    <button class="chip" data-loc="Calf"      onclick="toggleChip(this)">Calf</button>
+    <button class="chip" data-loc="Hamstring"  onclick="toggleChip(this)">Hamstring</button>
+    <button class="chip" data-loc="Groin"      onclick="toggleChip(this)">Groin</button>
+    <button class="chip" data-loc="Lower Back" onclick="toggleChip(this)">Lower Back</button>
+    <button class="chip" data-loc="Shoulder"   onclick="toggleChip(this)">Shoulder</button>
+    <button class="chip" data-loc="Knee"       onclick="toggleChip(this)">Knee</button>
+    <button class="chip" data-loc="Calf"       onclick="toggleChip(this)">Calf</button>
+    <button class="chip" data-loc="Trap"       onclick="toggleChip(this)">Trap</button>
+    <button class="chip" data-loc="Forearm"    onclick="toggleChip(this)">Forearm</button>
+    <button class="chip" data-loc="Glute"      onclick="toggleChip(this)">Glute</button>
+    <button class="chip" data-loc="Quad"       onclick="toggleChip(this)">Quad</button>
     <button class="chip chip-none" data-loc="None" onclick="toggleChip(this)">None</button>
   </div>
 
@@ -436,11 +440,11 @@
     <div class="question">
       <div class="q-label" style="margin-bottom:10px;">Balls Faced</div>
       <div class="radio-grid" id="balls-faced-options">
-        <button class="radio-opt" data-val="&lt;24"  onclick="selectRadio('balls_faced',this)">&lt; 24 balls</button>
-        <button class="radio-opt" data-val="24-36"  onclick="selectRadio('balls_faced',this)">24 – 36 balls</button>
-        <button class="radio-opt" data-val="36-48"  onclick="selectRadio('balls_faced',this)">36 – 48 balls</button>
-        <button class="radio-opt" data-val="48-60"  onclick="selectRadio('balls_faced',this)">48 – 60 balls</button>
-        <button class="radio-opt" data-val="60+"    onclick="selectRadio('balls_faced',this)">60+ balls</button>
+        <button class="radio-opt" data-val="&lt;60"   onclick="selectRadio('balls_faced',this)">&lt; 60 Balls</button>
+        <button class="radio-opt" data-val="60-90"   onclick="selectRadio('balls_faced',this)">60 – 90 Balls</button>
+        <button class="radio-opt" data-val="90-120"  onclick="selectRadio('balls_faced',this)">90 – 120 Balls</button>
+        <button class="radio-opt" data-val="120-150" onclick="selectRadio('balls_faced',this)">120 – 150 Balls</button>
+        <button class="radio-opt" data-val="&gt;150"  onclick="selectRadio('balls_faced',this)">&gt; 150 Balls</button>
       </div>
     </div>
   </div>

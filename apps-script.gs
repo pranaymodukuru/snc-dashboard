@@ -15,7 +15,7 @@ const SECTION = {
 
 // Used only to auto-create a tab if it doesn't exist yet
 const DEFAULT_HEADERS = {
-  'daily-wellness': ['Timestamp','Player','Sleep','Energy','Soreness','Mood','Stress','Hamstring','Groin','Back','Notes'],
+  'daily-wellness': ['Timestamp','Player','Sleep','Energy','Soreness','Mood','Stress','Hamstring','Groin','Lower Back','Notes'],
   'session-rpe':    ['Timestamp','Player','Type','Duration','RPE'],
   'bowling-load':   ['Timestamp','Player','Match Balls','Net Balls','High Intensity'],
   'player-status':  ['Timestamp','Player','Status','Notes']
@@ -25,7 +25,7 @@ const DEFAULT_HEADERS = {
 const KEYMAP = {
   timestamp:'date', date:'date', player:'player',
   sleep:'sleep', energy:'energy', soreness:'soreness', mood:'mood', stress:'stress',
-  hamstring:'hamstring', groin:'groin', back:'back', notes:'notes',
+  hamstring:'hamstring', groin:'groin', back:'back', lowerback:'back', notes:'notes',
   type:'type', duration:'duration', rpe:'rpe',
   matchballs:'matchBalls', netballs:'netBalls',
   highintensity:'highInt', highint:'highInt',
