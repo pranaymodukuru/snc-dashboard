@@ -7,7 +7,6 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
-import pandas as pd
 from pathlib import Path
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -37,11 +36,6 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-WELLNESS_CSV = DATA_DIR / "wellness.csv"
-ROSTER_CSV   = DATA_DIR / "roster.csv"
-SESSIONS_CSV = DATA_DIR / "sessions.csv"
-EVENING_CSV  = DATA_DIR / "evening_checkin.csv"
-
 WELLNESS_COLS = [
     "timestamp", "player_name", "sleep_quality", "energy_level", "body_soreness",
     "tightness_locations", "availability_status", "notes",
@@ -68,12 +62,12 @@ EVENING_COLS  = [
 
 DB_PATH = DATA_DIR / "snc.db"
 
-# table -> (columns, legacy CSV path used for one-time migration)
+# table -> columns
 TABLES = {
-    "wellness": (WELLNESS_COLS, WELLNESS_CSV),
-    "roster":   (ROSTER_COLS,   ROSTER_CSV),
-    "sessions": (SESSIONS_COLS, SESSIONS_CSV),
-    "evening":  (EVENING_COLS,  EVENING_CSV),
+    "wellness": WELLNESS_COLS,
+    "roster":   ROSTER_COLS,
+    "sessions": SESSIONS_COLS,
+    "evening":  EVENING_COLS,
 }
 
 _INT_COLS = {
@@ -105,17 +99,6 @@ def _py(v):
         except Exception:
             return v
     return v
-
-
-def _to_bool_int(v):
-    if v is None:
-        return None
-    s = str(v).strip().lower()
-    if s in ("true", "1", "yes", "1.0"):
-        return 1
-    if s in ("false", "0", "no", "0.0", "", "nan"):
-        return 0
-    return None
 
 
 async def insert_row(table: str, columns: list, row: dict):
@@ -163,44 +146,10 @@ async def _roster_players() -> tuple[list, list]:
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("PRAGMA journal_mode=WAL;")
-        for table, (cols, _csv) in TABLES.items():
+        for table, cols in TABLES.items():
             coldefs = ", ".join(f'"{c}" {_col_type(c)}' for c in cols)
             await db.execute(f'CREATE TABLE IF NOT EXISTS "{table}" ({coldefs})')
         await db.commit()
-    await _migrate_csvs_if_needed()
-
-
-async def _migrate_csvs_if_needed():
-    """One-time, idempotent import: if a table is empty but its legacy CSV is
-    still on the volume, load the CSV rows into the table."""
-    for table, (cols, csv_path) in TABLES.items():
-        async with aiosqlite.connect(DB_PATH) as db:
-            async with db.execute(f'SELECT COUNT(*) FROM "{table}"') as cur:
-                (count,) = await cur.fetchone()
-        if count or not csv_path.exists():
-            continue
-        try:
-            df = pd.read_csv(csv_path)
-        except Exception:
-            continue
-        if df.empty:
-            continue
-        bool_present = {c: df[c].map(_to_bool_int) for c in _BOOL_COLS if c in df.columns}
-        if bool_present:
-            df = df.assign(**bool_present)
-        present = [c for c in cols if c in df.columns]
-        collist = ", ".join(f'"{c}"' for c in present)
-        placeholders = ", ".join("?" for _ in present)
-        records = df.to_dict("records")
-        async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute("PRAGMA busy_timeout=5000;")
-            for rec in records:
-                values = [_py(rec.get(c)) for c in present]
-                await db.execute(
-                    f'INSERT INTO "{table}" ({collist}) VALUES ({placeholders})', values
-                )
-            await db.commit()
-        print(f"[migrate] imported {len(records)} rows from {csv_path.name} -> {table}")
 
 
 # ── Pydantic models ──────────────────────────────────────────────────────────
