@@ -18,7 +18,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "knights2024")
+DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD")
+if not DASHBOARD_PASSWORD:
+    raise RuntimeError("DASHBOARD_PASSWORD env var not set")
 API_URL = os.getenv("API_URL", "http://localhost:8000")
 
 # Public base URL for player-facing links (check-in forms etc.)

@@ -228,8 +228,8 @@ async def post_session(data: SessionSubmission):
 
 @app.put("/data/roster")
 async def put_roster(records: list[dict]):
-    df = pd.DataFrame(records)
-    df.to_csv(ROSTER_CSV, index=False)
+    with _csv_lock:
+        pd.DataFrame(records).to_csv(ROSTER_CSV, index=False)
     return {"status": "ok"}
 
 
