@@ -10,11 +10,19 @@ from typing import Optional
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
-import json
+from contextlib import asynccontextmanager
+import math
 import os
-import threading
+import aiosqlite
 
-app = FastAPI(title="SNC Check-in API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    yield
+
+
+app = FastAPI(title="SNC Check-in API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -54,39 +62,145 @@ EVENING_COLS  = [
 ]
 
 
-_csv_lock = threading.Lock()
+# ── SQLite data layer ────────────────────────────────────────────────────────
+# Single DB file on the volume (DATA_DIR). WAL mode lets the dashboard's reads
+# run concurrently with players' submits; SQLite serializes the single writer.
+
+DB_PATH = DATA_DIR / "snc.db"
+
+# table -> (columns, legacy CSV path used for one-time migration)
+TABLES = {
+    "wellness": (WELLNESS_COLS, WELLNESS_CSV),
+    "roster":   (ROSTER_COLS,   ROSTER_CSV),
+    "sessions": (SESSIONS_COLS, SESSIONS_CSV),
+    "evening":  (EVENING_COLS,  EVENING_CSV),
+}
+
+_INT_COLS = {
+    "sleep_quality", "energy_level", "body_soreness", "mood", "stress",
+    "session_rpe", "duration_mins", "rpe", "age",
+    "stress_level", "hamstring_tightness", "groin_stiffness", "lower_back_stiffness",
+}
+_REAL_COLS = {"sleep_hours"}
+_BOOL_COLS = {"is_sick", "did_bowl", "did_bat", "is_fast_bowler"}
 
 
-def ensure_csv(path: Path, columns: list):
-    if not path.exists():
-        pd.DataFrame(columns=columns).to_csv(path, index=False)
+def _col_type(col: str) -> str:
+    if col in _INT_COLS or col in _BOOL_COLS:
+        return "INTEGER"
+    if col in _REAL_COLS:
+        return "REAL"
+    return "TEXT"
 
 
-def append_row(path: Path, columns: list, row: dict):
-    with _csv_lock:
-        ensure_csv(path, columns)
-        df = pd.read_csv(path)
-        new_row = pd.DataFrame([{col: row.get(col) for col in columns}])
-        pd.concat([df, new_row], ignore_index=True).to_csv(path, index=False)
+def _py(v):
+    """Coerce pandas/numpy scalars to plain Python so sqlite3 can bind them."""
+    if v is None:
+        return None
+    if isinstance(v, float) and math.isnan(v):
+        return None
+    if hasattr(v, "item"):  # numpy scalar
+        try:
+            return v.item()
+        except Exception:
+            return v
+    return v
 
 
-def df_to_json_response(df: pd.DataFrame) -> JSONResponse:
-    return JSONResponse(content=json.loads(df.to_json(orient="records")))
+def _to_bool_int(v):
+    if v is None:
+        return None
+    s = str(v).strip().lower()
+    if s in ("true", "1", "yes", "1.0"):
+        return 1
+    if s in ("false", "0", "no", "0.0", "", "nan"):
+        return 0
+    return None
 
 
-def _roster_players() -> tuple[list, list]:
-    ensure_csv(ROSTER_CSV, ROSTER_COLS)
+async def insert_row(table: str, columns: list, row: dict):
+    cols = ", ".join(f'"{c}"' for c in columns)
+    placeholders = ", ".join("?" for _ in columns)
+    values = [_py(row.get(c)) for c in columns]
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA busy_timeout=5000;")
+        await db.execute(f'INSERT INTO "{table}" ({cols}) VALUES ({placeholders})', values)
+        await db.commit()
+
+
+async def fetch_all(table: str) -> list:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(f'SELECT * FROM "{table}"') as cur:
+            rows = await cur.fetchall()
+    return [dict(r) for r in rows]
+
+
+async def replace_roster(records: list):
+    cols = ", ".join(f'"{c}"' for c in ROSTER_COLS)
+    placeholders = ", ".join("?" for _ in ROSTER_COLS)
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA busy_timeout=5000;")
+        await db.execute('DELETE FROM "roster"')
+        for rec in records:
+            values = [_py(rec.get(c)) for c in ROSTER_COLS]
+            await db.execute(f'INSERT INTO "roster" ({cols}) VALUES ({placeholders})', values)
+        await db.commit()
+
+
+async def _roster_players() -> tuple[list, list]:
     players, fast_bowlers = [], []
     try:
-        roster = pd.read_csv(ROSTER_CSV)
-        if not roster.empty:
-            players = roster[["name", "role"]].fillna("").to_dict("records")
-            fast_bowlers = roster[
-                roster["is_fast_bowler"].astype(str).str.lower().isin(["true", "1", "yes"])
-            ]["name"].tolist()
+        for r in await fetch_all("roster"):
+            players.append({"name": r.get("name") or "", "role": r.get("role") or ""})
+            if str(r.get("is_fast_bowler")).strip().lower() in ("true", "1", "yes"):
+                fast_bowlers.append(r.get("name"))
     except Exception:
         pass
     return players, fast_bowlers
+
+
+async def init_db():
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA journal_mode=WAL;")
+        for table, (cols, _csv) in TABLES.items():
+            coldefs = ", ".join(f'"{c}" {_col_type(c)}' for c in cols)
+            await db.execute(f'CREATE TABLE IF NOT EXISTS "{table}" ({coldefs})')
+        await db.commit()
+    await _migrate_csvs_if_needed()
+
+
+async def _migrate_csvs_if_needed():
+    """One-time, idempotent import: if a table is empty but its legacy CSV is
+    still on the volume, load the CSV rows into the table."""
+    for table, (cols, csv_path) in TABLES.items():
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute(f'SELECT COUNT(*) FROM "{table}"') as cur:
+                (count,) = await cur.fetchone()
+        if count or not csv_path.exists():
+            continue
+        try:
+            df = pd.read_csv(csv_path)
+        except Exception:
+            continue
+        if df.empty:
+            continue
+        bool_present = {c: df[c].map(_to_bool_int) for c in _BOOL_COLS if c in df.columns}
+        if bool_present:
+            df = df.assign(**bool_present)
+        present = [c for c in cols if c in df.columns]
+        collist = ", ".join(f'"{c}"' for c in present)
+        placeholders = ", ".join("?" for _ in present)
+        records = df.to_dict("records")
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("PRAGMA busy_timeout=5000;")
+            for rec in records:
+                values = [_py(rec.get(c)) for c in present]
+                await db.execute(
+                    f'INSERT INTO "{table}" ({collist}) VALUES ({placeholders})', values
+                )
+            await db.commit()
+        print(f"[migrate] imported {len(records)} rows from {csv_path.name} -> {table}")
 
 
 # ── Pydantic models ──────────────────────────────────────────────────────────
@@ -163,7 +277,7 @@ async def checkin_form(request: Request):
 
 @app.get("/checkin/{player_name}", response_class=HTMLResponse)
 async def checkin_player(request: Request, player_name: str):
-    players, fast_bowlers = _roster_players()
+    players, fast_bowlers = await _roster_players()
     return templates.TemplateResponse("checkin.html", {
         "request": request,
         "players": players,
@@ -178,7 +292,7 @@ async def checkin_player(request: Request, player_name: str):
 async def submit_wellness(data: WellnessSubmission):
     row = data.model_dump()
     row["timestamp"] = datetime.now().isoformat()
-    append_row(WELLNESS_CSV, WELLNESS_COLS, row)
+    await insert_row("wellness", WELLNESS_COLS, row)
     return {"status": "ok", "player_name": data.player_name}
 
 
@@ -186,7 +300,7 @@ async def submit_wellness(data: WellnessSubmission):
 async def submit_evening(data: EveningSubmission):
     row = data.model_dump()
     row["timestamp"] = datetime.now().isoformat()
-    append_row(EVENING_CSV, EVENING_COLS, row)
+    await insert_row("evening", EVENING_COLS, row)
     return {"status": "ok", "player_name": data.player_name}
 
 
@@ -194,26 +308,22 @@ async def submit_evening(data: EveningSubmission):
 
 @app.get("/data/wellness")
 async def get_wellness():
-    ensure_csv(WELLNESS_CSV, WELLNESS_COLS)
-    return df_to_json_response(pd.read_csv(WELLNESS_CSV))
+    return JSONResponse(content=await fetch_all("wellness"))
 
 
 @app.get("/data/roster")
 async def get_roster():
-    ensure_csv(ROSTER_CSV, ROSTER_COLS)
-    return df_to_json_response(pd.read_csv(ROSTER_CSV))
+    return JSONResponse(content=await fetch_all("roster"))
 
 
 @app.get("/data/sessions")
 async def get_sessions():
-    ensure_csv(SESSIONS_CSV, SESSIONS_COLS)
-    return df_to_json_response(pd.read_csv(SESSIONS_CSV))
+    return JSONResponse(content=await fetch_all("sessions"))
 
 
 @app.get("/data/evening")
 async def get_evening():
-    ensure_csv(EVENING_CSV, EVENING_COLS)
-    return df_to_json_response(pd.read_csv(EVENING_CSV))
+    return JSONResponse(content=await fetch_all("evening"))
 
 
 # ── Data write endpoints ─────────────────────────────────────────────────────
@@ -222,14 +332,13 @@ async def get_evening():
 async def post_session(data: SessionSubmission):
     row = data.model_dump()
     row["timestamp"] = datetime.now().isoformat()
-    append_row(SESSIONS_CSV, SESSIONS_COLS, row)
+    await insert_row("sessions", SESSIONS_COLS, row)
     return {"status": "ok"}
 
 
 @app.put("/data/roster")
 async def put_roster(records: list[dict]):
-    with _csv_lock:
-        pd.DataFrame(records).to_csv(ROSTER_CSV, index=False)
+    await replace_roster(records)
     return {"status": "ok"}
 
 
