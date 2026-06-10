@@ -12,6 +12,7 @@ from pathlib import Path
 from datetime import datetime
 import json
 import os
+import threading
 
 app = FastAPI(title="SNC Check-in API")
 
@@ -53,16 +54,20 @@ EVENING_COLS  = [
 ]
 
 
+_csv_lock = threading.Lock()
+
+
 def ensure_csv(path: Path, columns: list):
     if not path.exists():
         pd.DataFrame(columns=columns).to_csv(path, index=False)
 
 
 def append_row(path: Path, columns: list, row: dict):
-    ensure_csv(path, columns)
-    df = pd.read_csv(path)
-    new_row = pd.DataFrame([{col: row.get(col) for col in columns}])
-    pd.concat([df, new_row], ignore_index=True).to_csv(path, index=False)
+    with _csv_lock:
+        ensure_csv(path, columns)
+        df = pd.read_csv(path)
+        new_row = pd.DataFrame([{col: row.get(col) for col in columns}])
+        pd.concat([df, new_row], ignore_index=True).to_csv(path, index=False)
 
 
 def df_to_json_response(df: pd.DataFrame) -> JSONResponse:
