@@ -1421,7 +1421,7 @@ def render_admin_tab():
         if st.button("Save Roster", type="primary", use_container_width=True):
             try:
                 r = requests.put(f"{API_URL}/data/roster",
-                                 json=edited.to_dict(orient="records"), timeout=10)
+                                 json=edited.where(edited.notna(), other=None).to_dict(orient="records"), timeout=10)
                 r.raise_for_status()
                 load_roster.clear()
                 st.rerun()
