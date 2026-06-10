@@ -1432,6 +1432,30 @@ def render_admin_tab():
 
     st.divider()
 
+    # ── Delete Player ────────────────────────────────────────────────────────
+    st.subheader("Delete Player")
+    if not current_roster.empty:
+        player_options = {
+            f"{row['name']} (#{int(row['id'])})" if pd.notna(row.get("id")) else row["name"]: int(row["id"])
+            for _, row in current_roster.iterrows()
+            if pd.notna(row.get("name")) and str(row.get("name")).strip()
+        }
+        selected_label = st.selectbox("Select player to delete", options=list(player_options.keys()), key="delete_player_select")
+        if st.button("Delete Player", type="secondary"):
+            player_id = player_options[selected_label]
+            try:
+                r = requests.delete(f"{API_URL}/data/roster/{player_id}", timeout=10)
+                r.raise_for_status()
+                load_roster.clear()
+                st.success(f"Deleted {selected_label}")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed to delete player: {e}")
+    else:
+        st.caption("No players in roster.")
+
+    st.divider()
+
     # ── Player Check-in Links ────────────────────────────────────────────────
     with st.expander("Player Check-in Links"):
         st.caption("Share each player's personal link — they land directly on their Morning/Evening choice.")
