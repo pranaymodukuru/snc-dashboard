@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -114,7 +114,7 @@ async def insert_row(table: str, columns: list, row: dict):
 async def fetch_all(table: str) -> list:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute(f'SELECT * FROM "{table}"') as cur:
+        async with db.execute(f'SELECT rowid AS id, * FROM "{table}"') as cur:
             rows = await cur.fetchall()
     return [dict(r) for r in rows]
 
@@ -288,6 +288,17 @@ async def post_session(data: SessionSubmission):
 @app.put("/data/roster")
 async def put_roster(records: list[dict]):
     await replace_roster(records)
+    return {"status": "ok"}
+
+
+@app.delete("/data/{table}/{row_id}")
+async def delete_row(table: str, row_id: int):
+    if table not in TABLES:
+        raise HTTPException(status_code=404, detail=f"Unknown table: {table}")
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA busy_timeout=5000;")
+        await db.execute(f'DELETE FROM "{table}" WHERE rowid = ?', (row_id,))
+        await db.commit()
     return {"status": "ok"}
 
 

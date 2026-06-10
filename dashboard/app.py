@@ -142,7 +142,8 @@ def _api_get(path: str) -> list:
 
 @st.cache_data(ttl=30)
 def load_wellness() -> pd.DataFrame:
-    df = pd.DataFrame(_api_get("/data/wellness"), columns=WELLNESS_COLS)
+    records = _api_get("/data/wellness")
+    df = pd.DataFrame(records) if records else pd.DataFrame(columns=WELLNESS_COLS)
     if not df.empty:
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df["date"] = df["timestamp"].dt.date
@@ -169,7 +170,8 @@ def load_roster() -> pd.DataFrame:
 
 @st.cache_data(ttl=30)
 def load_evening() -> pd.DataFrame:
-    df = pd.DataFrame(_api_get("/data/evening"), columns=EVENING_COLS)
+    records = _api_get("/data/evening")
+    df = pd.DataFrame(records) if records else pd.DataFrame(columns=EVENING_COLS)
     if not df.empty:
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df["date"] = df["timestamp"].dt.date
@@ -178,7 +180,8 @@ def load_evening() -> pd.DataFrame:
 
 @st.cache_data(ttl=30)
 def load_sessions() -> pd.DataFrame:
-    df = pd.DataFrame(_api_get("/data/sessions"), columns=SESSIONS_COLS)
+    records = _api_get("/data/sessions")
+    df = pd.DataFrame(records) if records else pd.DataFrame(columns=SESSIONS_COLS)
     if not df.empty:
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df["date"] = df["timestamp"].dt.date
@@ -560,17 +563,25 @@ def render_raw_data():
             st.download_button(f"Export {name}.csv", df.to_csv(index=False),
                                file_name=f"{name}.csv", mime="text/csv")
 
+    def _delete_rows(table: str, row_ids: list):
+        for rid in row_ids:
+            try:
+                requests.delete(f"{API_URL}/data/{table}/{rid}", timeout=5)
+            except Exception as e:
+                st.error(f"Delete failed for row {rid}: {e}")
+        st.cache_data.clear()
+
     # ── Morning wellness ─────────────────────────────────────────────────────
     with st.expander("Morning Check-ins (Wellness)", expanded=True):
         wellness = load_wellness()
         if wellness.empty:
             st.info("No morning check-in data yet.")
         else:
-            df_w = _date_filter(wellness, "wellness")
+            df_w_full = _date_filter(wellness, "wellness")
             keep = ["date","player_name","sleep_quality","energy_level","body_soreness",
                     "mood","stress","sleep_hours","is_sick",
                     "tightness_locations","availability_status","notes"]
-            df_w = df_w[[c for c in keep if c in df_w.columns]].rename(columns={
+            df_w = df_w_full[[c for c in keep if c in df_w_full.columns]].rename(columns={
                 "player_name":"Player","sleep_quality":"Sleep","energy_level":"Energy",
                 "body_soreness":"Soreness","mood":"Mood","stress":"Stress",
                 "sleep_hours":"Sleep Hrs","is_sick":"Sick",
@@ -593,8 +604,19 @@ def render_raw_data():
                 styled = styled.applymap(lambda v: _bg(v, inv=False), subset=[col])
             if "Soreness" in df_w.columns:
                 styled = styled.applymap(lambda v: _bg(v, inv=True), subset=["Soreness"])
-            st.dataframe(styled, use_container_width=True, height=380)
-            _export_btn(df_w, "morning_checkins")
+            sel_w = st.dataframe(styled, use_container_width=True, height=380,
+                                 selection_mode="multi-row", on_select="rerun",
+                                 key="raw_wellness")
+            c1, c2 = st.columns([1, 5])
+            with c1:
+                _export_btn(df_w, "morning_checkins")
+            with c2:
+                sel_idx = sel_w.selection.rows
+                if sel_idx:
+                    if st.button(f"Delete {len(sel_idx)} selected", type="primary",
+                                 key="del_wellness"):
+                        _delete_rows("wellness", df_w_full.iloc[sel_idx]["id"].tolist())
+                        st.rerun()
 
     # ── Evening check-ins ────────────────────────────────────────────────────
     with st.expander("Evening Check-ins (Session RPE & Bowling)", expanded=False):
@@ -602,15 +624,26 @@ def render_raw_data():
         if evening.empty:
             st.info("No evening check-in data yet.")
         else:
-            df_e = _date_filter(evening, "evening")
+            df_e_full = _date_filter(evening, "evening")
             keep_e = ["date","player_name","session_rpe","did_bowl","bowling_volume","bowling_intensity","did_bat","balls_faced"]
-            df_e_display = df_e[[c for c in keep_e if c in df_e.columns]].rename(columns={
+            df_e_display = df_e_full[[c for c in keep_e if c in df_e_full.columns]].rename(columns={
                 "player_name":"Player","session_rpe":"RPE","did_bowl":"Bowled",
                 "bowling_volume":"Bowl Vol","bowling_intensity":"Bowl Int",
                 "did_bat":"Batted","balls_faced":"Balls Faced",
             })
-            st.dataframe(df_e_display, use_container_width=True, height=320)
-            _export_btn(df_e, "evening_checkins")
+            sel_e = st.dataframe(df_e_display, use_container_width=True, height=320,
+                                 selection_mode="multi-row", on_select="rerun",
+                                 key="raw_evening")
+            c1, c2 = st.columns([1, 5])
+            with c1:
+                _export_btn(df_e_full, "evening_checkins")
+            with c2:
+                sel_idx = sel_e.selection.rows
+                if sel_idx:
+                    if st.button(f"Delete {len(sel_idx)} selected", type="primary",
+                                 key="del_evening"):
+                        _delete_rows("evening", df_e_full.iloc[sel_idx]["id"].tolist())
+                        st.rerun()
 
     # ── Session load ─────────────────────────────────────────────────────────
     with st.expander("Session Load (Coach Logged)", expanded=False):
@@ -618,14 +651,25 @@ def render_raw_data():
         if sessions.empty:
             st.info("No session data yet.")
         else:
-            df_s = _date_filter(sessions, "sessions")
-            st.dataframe(
-                df_s[["date","player_name","session_type","duration_mins","rpe","load_au","notes"]]
-                  .rename(columns={"player_name":"Player","session_type":"Type",
-                                   "duration_mins":"Duration (min)","load_au":"Load (AU)"}),
-                use_container_width=True, height=320,
+            df_s_full = _date_filter(sessions, "sessions")
+            display_cols = ["date","player_name","session_type","duration_mins","rpe","load_au","notes"]
+            df_s_display = df_s_full[[c for c in display_cols if c in df_s_full.columns]].rename(
+                columns={"player_name":"Player","session_type":"Type",
+                         "duration_mins":"Duration (min)","load_au":"Load (AU)"}
             )
-            _export_btn(df_s, "sessions")
+            sel_s = st.dataframe(df_s_display, use_container_width=True, height=320,
+                                 selection_mode="multi-row", on_select="rerun",
+                                 key="raw_sessions")
+            c1, c2 = st.columns([1, 5])
+            with c1:
+                _export_btn(df_s_full, "sessions")
+            with c2:
+                sel_idx = sel_s.selection.rows
+                if sel_idx:
+                    if st.button(f"Delete {len(sel_idx)} selected", type="primary",
+                                 key="del_sessions"):
+                        _delete_rows("sessions", df_s_full.iloc[sel_idx]["id"].tolist())
+                        st.rerun()
 
     # ── Bowling check-ins ─────────────────────────────────────────────────────
     with st.expander("Bowling Check-ins", expanded=False):
@@ -633,20 +677,31 @@ def render_raw_data():
         if evening_raw.empty:
             st.info("No evening check-in data yet.")
         else:
-            df_bowl = _date_filter(
+            df_bowl_full = _date_filter(
                 evening_raw[evening_raw["did_bowl"].astype(str).str.lower().isin(["true", "1", "yes"])].copy(),
                 "bowl_checkin",
             )
-            if df_bowl.empty:
+            if df_bowl_full.empty:
                 st.info("No bowling check-ins in selected date range.")
             else:
-                st.dataframe(
-                    df_bowl[["date","player_name","bowling_volume","bowling_intensity","session_rpe"]]
-                      .rename(columns={"player_name":"Player","bowling_volume":"Volume",
-                                       "bowling_intensity":"Intensity","session_rpe":"RPE"}),
-                    use_container_width=True, height=320,
+                bowl_cols = ["date","player_name","bowling_volume","bowling_intensity","session_rpe"]
+                df_bowl_display = df_bowl_full[[c for c in bowl_cols if c in df_bowl_full.columns]].rename(
+                    columns={"player_name":"Player","bowling_volume":"Volume",
+                             "bowling_intensity":"Intensity","session_rpe":"RPE"}
                 )
-                _export_btn(df_bowl, "bowling_checkins")
+                sel_b = st.dataframe(df_bowl_display, use_container_width=True, height=320,
+                                     selection_mode="multi-row", on_select="rerun",
+                                     key="raw_bowling")
+                c1, c2 = st.columns([1, 5])
+                with c1:
+                    _export_btn(df_bowl_full, "bowling_checkins")
+                with c2:
+                    sel_idx = sel_b.selection.rows
+                    if sel_idx:
+                        if st.button(f"Delete {len(sel_idx)} selected", type="primary",
+                                     key="del_bowling"):
+                            _delete_rows("evening", df_bowl_full.iloc[sel_idx]["id"].tolist())
+                            st.rerun()
 
     # ── Roster ───────────────────────────────────────────────────────────────
     with st.expander("Roster", expanded=False):
@@ -654,8 +709,20 @@ def render_raw_data():
         if roster.empty:
             st.info("No roster data yet.")
         else:
-            st.dataframe(roster, use_container_width=True, height=320)
-            _export_btn(roster, "roster")
+            roster_display = roster[[c for c in ROSTER_COLS if c in roster.columns]]
+            sel_r = st.dataframe(roster_display, use_container_width=True, height=320,
+                                 selection_mode="multi-row", on_select="rerun",
+                                 key="raw_roster")
+            c1, c2 = st.columns([1, 5])
+            with c1:
+                _export_btn(roster_display, "roster")
+            with c2:
+                sel_idx = sel_r.selection.rows
+                if sel_idx:
+                    if st.button(f"Delete {len(sel_idx)} selected", type="primary",
+                                 key="del_roster"):
+                        _delete_rows("roster", roster.iloc[sel_idx]["id"].tolist())
+                        st.rerun()
 
 with tab_raw:
     render_raw_data()
