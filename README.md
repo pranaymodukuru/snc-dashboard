@@ -267,9 +267,13 @@ The check-in form reads the roster from the API at page load time.
 → Check that `DASHBOARD_PASSWORD` is set correctly on the dashboard service in Railway (no extra spaces).
 → Trigger a manual redeploy after updating env vars.
 
-**Dashboard shows "Could not reach API"**
+**Dashboard shows "Could not reach API" / all panels empty**
 → Check that `API_URL` on the dashboard service points at the API's private hostname
    (`http://<api-service>.railway.internal:8000`) and that the API service is up.
+→ Make sure the API binds to IPv6. Railway's private network is **IPv6-only**, so uvicorn
+   must listen on `::` (not `0.0.0.0`, which is IPv4-only). The API Dockerfile uses
+   `--host ::`; if you override the start command, keep `::` or the dashboard's private
+   calls will silently fail while the API's public domain still works.
 
 **Submissions not appearing in the dashboard**
 → Confirm the Volume is mounted on the **API** service at `/data` and `DATA_DIR=/data` is set there.
