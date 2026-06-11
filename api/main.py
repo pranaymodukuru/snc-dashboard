@@ -3,7 +3,7 @@ load_dotenv()
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -113,10 +113,22 @@ async def insert_row(table: str, columns: list, row: dict):
 
 async def fetch_all(table: str) -> list:
     async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA busy_timeout=5000;")
         db.row_factory = aiosqlite.Row
         async with db.execute(f'SELECT rowid AS id, * FROM "{table}"') as cur:
             rows = await cur.fetchall()
     return [dict(r) for r in rows]
+
+
+def _rowid(rec: dict):
+    """Existing rows carry the dashboard's `id` (= sqlite rowid). New rows don't."""
+    rid = _py(rec.get("id"))
+    if rid in (None, ""):
+        return None
+    try:
+        return int(rid)
+    except (TypeError, ValueError):
+        return None
 
 
 async def replace_roster(records: list):
@@ -127,7 +139,16 @@ async def replace_roster(records: list):
         await db.execute('DELETE FROM "roster"')
         for rec in records:
             values = [_py(rec.get(c)) for c in ROSTER_COLS]
-            await db.execute(f'INSERT INTO "roster" ({cols}) VALUES ({placeholders})', values)
+            rid = _rowid(rec)
+            # Preserve the original rowid for existing players so the dashboard's
+            # cached delete ids keep pointing at the right row after a save.
+            if rid is not None:
+                await db.execute(
+                    f'INSERT INTO "roster" (rowid, {cols}) VALUES (?, {placeholders})',
+                    [rid, *values],
+                )
+            else:
+                await db.execute(f'INSERT INTO "roster" ({cols}) VALUES ({placeholders})', values)
         await db.commit()
 
 
@@ -191,6 +212,21 @@ class SessionSubmission(BaseModel):
     notes: Optional[str] = ""
 
 
+# ── Root / static ──────────────────────────────────────────────────────────
+
+@app.get("/")
+async def root():
+    # No landing page is served from the API; send callers to the health probe
+    # rather than letting the bare domain 404 (and pollute the 4xx metrics).
+    return RedirectResponse(url="/health")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    # Browsers request this on every page load; 204 keeps it out of the 4xx count.
+    return Response(status_code=204)
+
+
 # ── Check-in routes ──────────────────────────────────────────────────────────
 
 @app.get("/checkin", response_class=HTMLResponse)
@@ -221,7 +257,7 @@ async def checkin_form(request: Request):
   <p>This page is no longer active. Open the personal check-in link your coach shared with you.</p>
 </body>
 </html>
-""", status_code=410)
+""", status_code=200)
 
 
 @app.get("/checkin/{player_name}", response_class=HTMLResponse)

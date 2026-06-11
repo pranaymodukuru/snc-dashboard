@@ -1,7 +1,9 @@
 FROM python:3.12-slim
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 WORKDIR /app
-ENV DATA_DIR=/app/data
+# Must match the Railway Volume mount path (see README) so the SQLite DB
+# lands on persistent storage instead of the ephemeral container filesystem.
+ENV DATA_DIR=/data
 COPY pyproject.toml .
 RUN uv sync --no-dev
 COPY api/ .

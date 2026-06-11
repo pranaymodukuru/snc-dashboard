@@ -72,30 +72,30 @@ dashboard/               Streamlit — coach dashboard (password protected)
   requirements.txt
   Dockerfile
 
-data/                    CSV files (local dev only — Railway uses a Volume)
-  wellness.csv
-  sessions.csv
-  bowling.csv
-  roster.csv
+data/                    SQLite database (Railway stores this on a Volume)
+  snc.db                 single file: wellness, sessions, evening, roster tables
 
 .env.example             Copy to .env for local dev
 ```
 
 **Data flow:**
 ```
-Player opens /checkin (FastAPI)
+Player opens /checkin/<their-name> (FastAPI)
         ↓
 Selects name → fills in sliders → submits
         ↓
-POST /submit/wellness → appended to /data/wellness.csv
+POST /submit/wellness → row inserted into snc.db (on the API's Volume)
         ↓
 Coach opens Streamlit dashboard (password protected)
         ↓
-Reads CSVs from shared /data volume → renders charts
+Dashboard calls the API over HTTP (GET /data/*) → renders charts
 ```
 
+> The database lives **only** on the API service. The dashboard never touches
+> the Volume directly — it reads and writes through the API over HTTP (`API_URL`).
+
 **Two URLs in production:**
-- `https://your-api.railway.app/checkin` → player check-in (send this to players)
+- `https://your-api.railway.app/checkin/<player-name>` → per-player check-in link (share each player's own link from the dashboard Admin tab)
 - `https://your-dashboard.railway.app` → coach dashboard (password protected)
 
 ---
@@ -129,7 +129,8 @@ cp .env.example .env
 uv run uvicorn api.main:app --reload --port 8000
 ```
 
-Check-in form available at: http://localhost:8000/checkin
+The bare `http://localhost:8000/checkin` shows a "use your personal link" page — players
+need their own `http://localhost:8000/checkin/<name>` link (grab them from the Admin tab).
 
 ### Run the Dashboard
 
@@ -139,21 +140,24 @@ uv run streamlit run dashboard/app.py
 
 Dashboard available at: http://localhost:8501
 
-> The `DATA_DIR=../data` prefix tells both services to share the same `data/` folder at the repo root.
-> The folder is created automatically on first run.
+> `DATA_DIR` points the API at the local `data/` folder (created automatically on first
+> run), where it keeps `snc.db`. The dashboard reads from the API via `API_URL`
+> (defaults to `http://localhost:8000`) — it does **not** open the database directly.
 
 ### First run
 
 1. Open the dashboard at http://localhost:8501
 2. Log in with the password you set in `.env`
 3. Go to the **Admin** tab → add your players → click **Save Roster**
-4. Open the check-in form at http://localhost:8000/checkin — your players will now appear
+4. In **Admin → Player Check-in Links**, copy a player's personal link and open it — they'll appear pre-selected
 
 ---
 
 ## Deploying to Railway
 
-Railway runs both services as separate containers that share a persistent Volume for CSV storage.
+Railway runs two separate services: the **API** (FastAPI), which owns the SQLite database
+on a persistent Volume, and the **Dashboard** (Streamlit), which talks to the API over
+Railway's private network. Only the API mounts the Volume.
 
 ### Step 1 — Push code to GitHub
 
@@ -178,7 +182,9 @@ Railway will create one service by default. Configure it as the API:
 2. Leave **Root Directory** blank (build context is the repo root)
 3. Set **Dockerfile Path** to `api/Dockerfile`
 4. Under **Networking → Expose port**: set to `8000`
-5. Click **Generate Domain** to get a public URL (this is your `/checkin` URL)
+5. Click **Generate Domain** to get a public URL (this is your check-in base URL)
+6. Under **Settings → Deploy → Healthcheck Path**: set to `/health`
+   (otherwise Railway probes `/`, which redirects — point it at the real probe)
 
 ### Step 4 — Add the Dashboard service
 
@@ -189,43 +195,49 @@ Railway will create one service by default. Configure it as the API:
 5. Under **Networking → Expose port**: set to `8501`
 6. Click **Generate Domain** to get a public URL (this is your dashboard URL)
 
-### Step 5 — Create a shared Volume
+### Step 5 — Create the Volume (API service only)
 
-Both services need to read/write the same CSV files.
+The SQLite database must live on a persistent Volume so it survives redeploys.
+Attach it to the **API service only** — SQLite is a single-writer file and the
+dashboard reaches the data through the API, not the disk.
 
 1. In your Railway project → click **New → Volume**
 2. Name it `snc-data`
 3. **Attach it to the API service**:
    - Click the API service → **Volumes** tab
    - Select `snc-data` → Mount path: `/data`
-4. **Attach it to the Dashboard service**:
-   - Click the dashboard service → **Volumes** tab
-   - Select `snc-data` → Mount path: `/data`
 
 ### Step 6 — Set environment variables
 
-Set these on **both** services (API and Dashboard):
+**API service:**
+
+| Variable | Value | Notes |
+|----------|-------|-------|
+| `DATA_DIR` | `/data` | Must match the Volume mount path |
+
+**Dashboard service:**
 
 | Variable | Value | Notes |
 |----------|-------|-------|
 | `DASHBOARD_PASSWORD` | `YourSecretPassword` | Coach login password |
-| `DATA_DIR` | `/data` | Must match the Volume mount path |
+| `API_URL` | `http://<api-service>.railway.internal:8000` | Private URL of the API service (no public traffic) |
+| `PUBLIC_URL` | `https://your-api.railway.app` | API's public domain — used to build player check-in links |
 
 To set variables:
 - Click the service → **Variables** tab → **New Variable**
 
-After adding variables, Railway will automatically redeploy both services.
+After adding variables, Railway will automatically redeploy the affected services.
 
 ### Step 7 — Verify deployment
 
-1. Open `https://your-api.railway.app/checkin` — you should see the player check-in form
+1. Open `https://your-api.railway.app/health` — you should see `{"status":"ok"}`
 2. Open `https://your-dashboard.railway.app` — you should see the login screen
 3. Log in, go to **Admin**, add your players, click **Save Roster**
-4. Go back to the check-in form — players should now appear
+4. In **Admin → Player Check-in Links**, open a player's link — they should appear pre-selected
 
 ### Step 8 — Share with players
 
-Send players the check-in URL and ask them to bookmark it:
+Send each player their **personal** check-in link (from **Admin → Player Check-in Links**) and ask them to bookmark it:
 - iPhone: Safari → Share → **Add to Home Screen**
 - Android: Chrome → menu (⋮) → **Add to Home Screen**
 
@@ -249,18 +261,23 @@ git push
 
 **Check-in form shows "No players in roster yet"**
 → Log into the dashboard → Admin tab → add players → Save Roster.
-The check-in form reads the roster at page load time from the shared volume.
+The check-in form reads the roster from the API at page load time.
 
 **Dashboard login always fails**
 → Check that `DASHBOARD_PASSWORD` is set correctly on the dashboard service in Railway (no extra spaces).
 → Trigger a manual redeploy after updating env vars.
 
+**Dashboard shows "Could not reach API"**
+→ Check that `API_URL` on the dashboard service points at the API's private hostname
+   (`http://<api-service>.railway.internal:8000`) and that the API service is up.
+
 **Submissions not appearing in the dashboard**
-→ Confirm both services have the same Volume mounted at `/data`.
+→ Confirm the Volume is mounted on the **API** service at `/data` and `DATA_DIR=/data` is set there.
 → Check Railway logs for the API service (click service → **Logs**) for any write errors.
 
 **Volume shows empty after redeployment**
-→ Railway Volumes are persistent — data is not lost on redeploy. If the CSV is missing, it may not have been written yet. Submit a test check-in and refresh.
+→ Railway Volumes are persistent — data is not lost on redeploy. Make sure `DATA_DIR=/data`
+   is set on the API service; without it the DB writes to the ephemeral container disk.
 
 **Port not accessible**
 → Make sure the port is exposed under **Networking** in each service's settings (8000 for API, 8501 for dashboard).
