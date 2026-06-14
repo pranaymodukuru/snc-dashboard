@@ -38,7 +38,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 WELLNESS_COLS = [
     "timestamp", "player_name", "sleep_quality", "energy_level", "body_soreness",
-    "tightness_locations", "availability_status", "notes",
+    "tightness_locations", "complaint_severity", "availability_status", "notes",
     "mood", "stress", "sleep_hours", "is_sick",
     # kept for backward compat with data logged before the form update
     "stress_level", "hamstring_tightness", "groin_stiffness", "lower_back_stiffness",
@@ -50,7 +50,7 @@ ROSTER_COLS = [
 ]
 SESSIONS_COLS = ["timestamp", "player_name", "session_type", "duration_mins", "rpe", "notes"]
 EVENING_COLS  = [
-    "timestamp", "player_name", "session_rpe",
+    "timestamp", "player_name", "session_rpe", "session_duration_hours",
     "did_bowl", "bowling_volume", "bowling_intensity",
     "did_bat", "balls_faced",
 ]
@@ -75,7 +75,7 @@ _INT_COLS = {
     "session_rpe", "duration_mins", "rpe", "age",
     "stress_level", "hamstring_tightness", "groin_stiffness", "lower_back_stiffness",
 }
-_REAL_COLS = {"sleep_hours"}
+_REAL_COLS = {"sleep_hours", "session_duration_hours"}
 _BOOL_COLS = {"is_sick", "did_bowl", "did_bat", "is_fast_bowler"}
 
 
@@ -170,6 +170,13 @@ async def init_db():
         for table, cols in TABLES.items():
             coldefs = ", ".join(f'"{c}" {_col_type(c)}' for c in cols)
             await db.execute(f'CREATE TABLE IF NOT EXISTS "{table}" ({coldefs})')
+            # Migrate existing tables: add any columns introduced after the table
+            # was first created (CREATE TABLE IF NOT EXISTS won't add them).
+            async with db.execute(f'PRAGMA table_info("{table}")') as cur:
+                existing = {row[1] for row in await cur.fetchall()}
+            for c in cols:
+                if c not in existing:
+                    await db.execute(f'ALTER TABLE "{table}" ADD COLUMN "{c}" {_col_type(c)}')
         await db.commit()
 
 
@@ -177,10 +184,12 @@ async def init_db():
 
 class WellnessSubmission(BaseModel):
     player_name: str
+    checkin_date: Optional[str] = None  # YYYY-MM-DD; defaults to today on the server
     sleep_quality: int
     energy_level: int
     body_soreness: int
     tightness_locations: Optional[str] = ""
+    complaint_severity: Optional[str] = None
     availability_status: Optional[str] = "Available"
     notes: Optional[str] = ""
     mood: Optional[int] = None
@@ -196,7 +205,9 @@ class WellnessSubmission(BaseModel):
 
 class EveningSubmission(BaseModel):
     player_name: str
+    checkin_date: Optional[str] = None  # YYYY-MM-DD; defaults to today on the server
     session_rpe: int
+    session_duration_hours: Optional[float] = None
     did_bowl: bool = False
     bowling_volume: Optional[str] = None
     bowling_intensity: Optional[str] = None
@@ -273,10 +284,24 @@ async def checkin_player(request: Request, player_name: str):
 
 # ── Submit endpoints ─────────────────────────────────────────────────────────
 
+def _build_timestamp(checkin_date: Optional[str]) -> str:
+    """Full ISO timestamp for a submission. If the player picked a date, stamp it
+    with the current wall-clock time so intra-day ordering and the dashboard's
+    datetime parsing keep working; otherwise just use now()."""
+    now = datetime.now()
+    if checkin_date:
+        try:
+            d = datetime.strptime(checkin_date, "%Y-%m-%d").date()
+            return datetime.combine(d, now.time()).isoformat()
+        except ValueError:
+            pass  # malformed date — fall back to now()
+    return now.isoformat()
+
+
 @app.post("/submit/wellness")
 async def submit_wellness(data: WellnessSubmission):
     row = data.model_dump()
-    row["timestamp"] = datetime.now().isoformat()
+    row["timestamp"] = _build_timestamp(data.checkin_date)
     await insert_row("wellness", WELLNESS_COLS, row)
     return {"status": "ok", "player_name": data.player_name}
 
@@ -284,7 +309,7 @@ async def submit_wellness(data: WellnessSubmission):
 @app.post("/submit/evening")
 async def submit_evening(data: EveningSubmission):
     row = data.model_dump()
-    row["timestamp"] = datetime.now().isoformat()
+    row["timestamp"] = _build_timestamp(data.checkin_date)
     await insert_row("evening", EVENING_COLS, row)
     return {"status": "ok", "player_name": data.player_name}
 

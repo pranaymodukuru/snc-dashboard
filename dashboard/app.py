@@ -84,7 +84,7 @@ require_auth()
 # ── Constants ────────────────────────────────────────────────────────────────
 WELLNESS_COLS = [
     "timestamp","player_name","sleep_quality","energy_level","body_soreness",
-    "tightness_locations","availability_status","notes",
+    "tightness_locations","complaint_severity","availability_status","notes",
     "mood","stress","sleep_hours","is_sick",
     "stress_level","hamstring_tightness","groin_stiffness","lower_back_stiffness",
 ]
@@ -94,7 +94,7 @@ ROSTER_COLS   = [
     "injury_history","current_status","status_notes",
 ]
 SESSIONS_COLS = ["timestamp","player_name","session_type","duration_mins","rpe","notes"]
-EVENING_COLS  = ["timestamp","player_name","session_rpe","did_bowl","bowling_volume","bowling_intensity","did_bat","balls_faced"]
+EVENING_COLS  = ["timestamp","player_name","session_rpe","session_duration_hours","did_bowl","bowling_volume","bowling_intensity","did_bat","balls_faced"]
 
 RPE_LABELS = {
     (1, 2):  ("Recovery",  "#22c55e"),
@@ -145,7 +145,7 @@ def load_wellness() -> pd.DataFrame:
     records = _api_get("/data/wellness")
     df = pd.DataFrame(records) if records else pd.DataFrame(columns=WELLNESS_COLS)
     if not df.empty:
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        df["timestamp"] = pd.to_datetime(df["timestamp"], format="ISO8601")
         df["date"] = df["timestamp"].dt.date
     return df
 
@@ -173,8 +173,10 @@ def load_evening() -> pd.DataFrame:
     records = _api_get("/data/evening")
     df = pd.DataFrame(records) if records else pd.DataFrame(columns=EVENING_COLS)
     if not df.empty:
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        df["timestamp"] = pd.to_datetime(df["timestamp"], format="ISO8601")
         df["date"] = df["timestamp"].dt.date
+        if "session_rpe" in df.columns and "session_duration_hours" in df.columns:
+            df["evening_au"] = df["session_rpe"] * df["session_duration_hours"].fillna(0)
     return df
 
 
@@ -183,7 +185,7 @@ def load_sessions() -> pd.DataFrame:
     records = _api_get("/data/sessions")
     df = pd.DataFrame(records) if records else pd.DataFrame(columns=SESSIONS_COLS)
     if not df.empty:
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        df["timestamp"] = pd.to_datetime(df["timestamp"], format="ISO8601")
         df["date"] = df["timestamp"].dt.date
         df["load_au"] = df["duration_mins"] * df["rpe"]
     return df
@@ -223,24 +225,353 @@ tab_overview, tab_load, tab_squad, tab_admin, tab_raw = st.tabs([
 # ════════════════════════════════════════════════════════════════════════════
 
 READINESS_SCORE_RANGES = [
-    ("Green",  "#22c55e", 13, 15),
-    ("Yellow", "#f59e0b", 10, 12),
-    ("Red",    "#ef4444",  0,  9),
+    ("Normal",            "#22c55e", 18, 25),
+    ("Monitor",           "#f59e0b", 14, 17),
+    ("Potential Concern", "#ef4444",  0, 13),
 ]
 
 
 def readiness_score(row) -> int:
-    """Sleep(1-5) + Energy(1-5) + inverted Soreness(1-5) → max 15."""
+    """Sleep + Energy + inv(Soreness) + inv(Stress) + Mood → max 25."""
     sleep   = float(row.get("sleep_quality",  3) or 3)
     energy  = float(row.get("energy_level",   3) or 3)
     soreness= float(row.get("body_soreness",  3) or 3)
-    return int(sleep + energy + (6 - soreness))
+    stress  = float(row.get("stress",         3) or 3)
+    mood    = float(row.get("mood",           3) or 3)
+    return int(sleep + energy + (6 - soreness) + (6 - stress) + mood)
 
 def readiness_band(score: int) -> tuple[str, str]:
     for label, color, lo, hi in READINESS_SCORE_RANGES:
         if lo <= score <= hi:
             return label, color
     return "Red", "#ef4444"
+
+
+# ── Shared display helpers (used by Overview + Player Load) ───────────────────
+
+def _rpe_color(rpe: float) -> str:
+    if rpe <= 2:  return "#22c55e"
+    if rpe <= 4:  return "#00c2ff"
+    if rpe <= 6:  return "#f59e0b"
+    if rpe <= 8:  return "#ef4444"
+    return "#ff4444"
+
+def _load_color(load: float) -> str:
+    if load < 200: return "#22c55e"
+    if load < 400: return "#f59e0b"
+    return "#ef4444"
+
+def _metric_card(label: str, value: str, sub: str = "", color: str = "#e8edf5") -> str:
+    return f"""
+    <div class="metric-card">
+      <div class="metric-label">{label}</div>
+      <div class="metric-value" style="color:{color};font-size:32px;">{value}</div>
+      {"<div style='font-size:11px;color:#6b7a90;margin-top:4px;'>"+sub+"</div>" if sub else ""}
+    </div>"""
+
+
+# ── Overview (AMS) helpers ───────────────────────────────────────────────────
+
+def wellness_pct(row) -> int:
+    """Readiness score (max 25) expressed as a 0–100% wellness figure."""
+    return int(round(readiness_score(row) / 25 * 100))
+
+def wellness_band(pct: int) -> tuple[str, str]:
+    """AMS readiness bands: Ready ≥80 · Monitor 60–79 · Flagged <60."""
+    if pct >= 80: return "Ready",   "#22c55e"
+    if pct >= 60: return "Monitor", "#f59e0b"
+    return "Flagged", "#ef4444"
+
+# Map roster `current_status` / self-reported availability → 4 AMS buckets.
+AMS_AVAIL_BUCKETS = [
+    ("Full Training",    "#22c55e"),
+    ("Modified Training","#f59e0b"),
+    ("Rehab",            "#f97316"),
+    ("Unavailable",      "#ef4444"),
+]
+_AVAIL_TO_BUCKET = {
+    "Full Training": "Full Training", "Available": "Full Training",
+    "Modified": "Modified Training", "Modified Training": "Modified Training",
+    "Recovery": "Modified Training", "Recovery Only": "Modified Training",
+    "Rehab": "Rehab",
+    "Unavailable": "Unavailable",
+}
+
+def aggregate_range(wellness: pd.DataFrame, start: date, end: date) -> pd.DataFrame:
+    """One row per player averaging their wellness submissions across [start, end].
+    Numeric metrics are means; categorical fields take the latest value in range."""
+    if wellness.empty or "date" not in wellness.columns:
+        return pd.DataFrame()
+    rng = wellness[(wellness["date"] >= start) & (wellness["date"] <= end)]
+    if rng.empty:
+        return pd.DataFrame()
+    num_cols = ["sleep_quality", "energy_level", "body_soreness", "mood", "stress", "sleep_hours"]
+    rows = []
+    for name, g in rng.groupby("player_name"):
+        g = g.sort_values("timestamp")
+        rec = {"player_name": name, "submissions": len(g)}
+        for c in num_cols:
+            if c in g.columns:
+                s = pd.to_numeric(g[c], errors="coerce").dropna()
+                rec[c] = round(s.mean(), 1) if not s.empty else None
+        last = g.iloc[-1]
+        for c in ["availability_status", "tightness_locations", "complaint_severity", "is_sick"]:
+            rec[c] = last.get(c)
+        rows.append(rec)
+    return pd.DataFrame(rows)
+
+
+def _ams_metric(emoji: str, value: str, label: str, color: str) -> str:
+    return f"""
+    <div style="text-align:center;flex:1;">
+      <div style="font-size:26px;line-height:1;">{emoji}</div>
+      <div style="font-size:26px;font-weight:800;color:{color};margin-top:6px;line-height:1;">{value}</div>
+      <div style="font-size:10px;color:#6b7a90;letter-spacing:1px;text-transform:uppercase;margin-top:4px;">{label}</div>
+    </div>"""
+
+
+def _panel_title(text: str) -> None:
+    st.markdown(
+        f"<div style='font-size:12px;font-weight:700;color:#9fb0c6;letter-spacing:1.5px;"
+        f"text-transform:uppercase;margin:0 0 10px;'>{text}</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _top_session_loads(evening: pd.DataFrame, start: date, end: date,
+                       roster: pd.DataFrame = None) -> list:
+    """Each player's single heaviest evening session in range, sorted desc.
+    Load = RPE × duration (mins)."""
+    rows = []
+    if evening.empty or "date" not in evening.columns:
+        return rows
+    rng = evening[(evening["date"] >= start) & (evening["date"] <= end)]
+    if rng.empty:
+        return rows
+    role_map = {}
+    if roster is not None and not roster.empty:
+        for _, row in roster.iterrows():
+            role_map[row.get("name")] = (row.get("type", ""), row.get("is_fast_bowler", False))
+    for name, g in rng.groupby("player_name"):
+        best = None
+        for _, r in g.iterrows():
+            rpe, hrs = r.get("session_rpe"), r.get("session_duration_hours")
+            if pd.isna(rpe) or pd.isna(hrs) or not hrs:
+                continue
+            dur = int(round(float(hrs) * 60))
+            load = int(round(float(rpe) * dur))
+            if best is None or load > best["load"]:
+                best = {"player": name, "dur": dur, "rpe": int(rpe), "load": load}
+        if best:
+            role, is_fb = role_map.get(name, ("", False))
+            best["role"] = role
+            best["is_fb"] = is_fb
+            rows.append(best)
+    rows.sort(key=lambda x: x["load"], reverse=True)
+    return rows
+
+
+# Per-role weekly AU reference ranges (session-RPE load = RPE × minutes).
+# A week outside the player's range is flagged red.
+AU_BANDS = {
+    "Fast Bowler": (2500, 4000),
+    "Spinner":     (2000, 3000),
+    "Batsman":     (2000, 3500),
+}
+
+
+def player_au_band(role, is_fb) -> tuple:
+    """(band name, low, high) for a player based on role / fast-bowler flag."""
+    r = str(role or "").strip().lower()
+    if is_fast_bowler(is_fb):
+        name = "Fast Bowler"
+    elif "spin" in r or "off-spin" in r or "leg-spin" in r:
+        name = "Spinner"
+    elif "bowler" in r or "rounder" in r:
+        name = "Fast Bowler"
+    else:
+        name = "Batsman"
+    return (name, *AU_BANDS[name])
+
+
+def _load_color_for_role(load: float, role: str, is_fb) -> str:
+    _, lo, hi = player_au_band(role, is_fb)
+    if load < lo:  return "#f59e0b"   # below range → orange
+    if load > hi:  return "#ef4444"   # above range → red
+    return "#22c55e"                  # in range → green
+
+
+def _weekly_loads(evening: pd.DataFrame, roster: pd.DataFrame, start: date, end: date) -> list:
+    """Per-player weekly AU over [start, end], normalised to a 7-day equivalent so
+    the role bands stay valid for any range length. Load = RPE × minutes."""
+    if evening.empty or "date" not in evening.columns:
+        return []
+    rng = evening[(evening["date"] >= start) & (evening["date"] <= end)].copy()
+    if rng.empty:
+        return []
+    rng["au"] = (pd.to_numeric(rng["session_rpe"], errors="coerce")
+                 * pd.to_numeric(rng["session_duration_hours"], errors="coerce") * 60)
+    totals = rng.groupby("player_name")["au"].sum().dropna()
+    span = max((end - start).days + 1, 1)
+    role_map = {}
+    if not roster.empty:
+        for _, r in roster.iterrows():
+            role_map[r.get("name")] = (r.get("role"), r.get("is_fast_bowler"))
+    out = []
+    for name, au in totals.items():
+        weekly = au * 7.0 / span
+        role, fb = role_map.get(name, (None, None))
+        band, lo, hi = player_au_band(role, fb)
+        out.append({"player": name, "weekly": int(round(weekly)), "total": int(round(au)),
+                    "band": band, "lo": lo, "hi": hi, "in_band": lo <= weekly <= hi})
+    out.sort(key=lambda x: x["weekly"], reverse=True)
+    return out
+
+
+# Representative ball count for each bowling-volume bucket logged in the evening
+# check-in (midpoint of the range; 60+ taken as ~72). Lets us estimate balls
+# bowled from the volume data players already submit.
+VOLUME_BALLS = {"<24": 12, "24-36": 30, "36-48": 42, "48-60": 54, "60+": 72}
+
+
+def _bowling_load(evening: pd.DataFrame, roster: pd.DataFrame, start: date, end: date) -> list:
+    """Per-bowler estimated balls bowled in [start, end] vs the equal-length window
+    immediately before it. Estimated from `bowling_volume` buckets."""
+    if evening.empty or "bowling_volume" not in evening.columns or "date" not in evening.columns:
+        return []
+    fb = fast_bowlers(roster)
+    ev = evening[evening["did_bowl"].astype(str).str.lower().isin(["true", "1", "yes"])].copy()
+    ev["balls"] = ev["bowling_volume"].map(VOLUME_BALLS)
+    ev = ev[ev["balls"].notna()]
+    span = max((end - start).days + 1, 1)
+    prev_end = start - timedelta(days=1)
+    prev_start = prev_end - timedelta(days=span - 1)
+    # Show every roster fast bowler (0 if they logged no bowling in the range);
+    # fall back to whoever actually bowled when the roster has no fast-bowler flags.
+    players = fb if fb else list(ev["player_name"].unique())
+    rows = []
+    for p in players:
+        pe = ev[ev["player_name"] == p]
+        this_w = pe[(pe["date"] >= start) & (pe["date"] <= end)]["balls"].sum()
+        prev_w = pe[(pe["date"] >= prev_start) & (pe["date"] <= prev_end)]["balls"].sum()
+        if not fb and this_w == 0 and prev_w == 0:
+            continue
+        change = round((this_w - prev_w) / prev_w * 100) if prev_w > 0 else None
+        rows.append({"player": p, "this_week": int(this_w),
+                     "prev_week": int(prev_w), "change": change})
+    rows.sort(key=lambda x: x["this_week"], reverse=True)
+    return rows
+
+
+def _has_tightness(v) -> bool:
+    s = str(v or "").strip()
+    return bool(s) and s.lower() != "none"
+
+
+def _injury_items(wellness: pd.DataFrame, start: date, end: date) -> list:
+    """Physical-complaint rows (area, worst severity, days reported) across [start, end]."""
+    if wellness.empty or "date" not in wellness.columns:
+        return []
+    rng = wellness[(wellness["date"] >= start) & (wellness["date"] <= end)]
+    if rng.empty:
+        return []
+    sev_w = {"Severe": 3, "Moderate": 2, "Mild": 1}
+    items = []
+    for name, g in rng.groupby("player_name"):
+        tight = g[g["tightness_locations"].apply(_has_tightness)]
+        sick = g[g["is_sick"].astype(str).str.lower().isin(["true", "1", "yes"])]
+        if tight.empty and sick.empty:
+            continue
+        if not tight.empty:
+            areas = set()
+            for v in tight["tightness_locations"]:
+                for a in str(v).split(","):
+                    a = a.strip()
+                    if a and a.lower() != "none":
+                        areas.add(a)
+            area = ", ".join(sorted(areas)) if areas else "Illness"
+            sevs = [s for s in tight.get("complaint_severity", pd.Series([], dtype=object))
+                    if isinstance(s, str) and s]
+            sev = max(sevs, key=lambda s: sev_w.get(s, 0)) if sevs else "—"
+            days = tight["date"].nunique()
+        else:
+            area, sev, days = "Illness", "Illness", sick["date"].nunique()
+        items.append({"player": name, "area": area, "severity": sev, "days": max(days, 1)})
+    items.sort(key=lambda x: (sev_w.get(x["severity"], 0), x["days"]), reverse=True)
+    return items
+
+
+def _attention_cards(per_player: pd.DataFrame) -> list:
+    """Players whose range-averaged check-ins flag an issue, worst first."""
+    cards = []
+    if per_player.empty:
+        return cards
+    for _, r in per_player.iterrows():
+        flags, severe = [], False
+        wp = wellness_pct(r)
+        band, _ = wellness_band(wp)
+        locs = str(r.get("tightness_locations") or "").strip()
+        if _has_tightness(locs):
+            sev = r.get("complaint_severity")
+            sev_txt = f" ({sev})" if isinstance(sev, str) and sev else ""
+            flags.append(f"{locs} tightness{sev_txt}")
+            if isinstance(sev, str) and sev == "Severe":
+                severe = True
+        if str(r.get("is_sick", "")).lower() in ("true", "1", "yes"):
+            flags.append("Reported illness"); severe = True
+        try:
+            if float(r.get("sleep_hours") or 8) < 6:
+                flags.append("Low sleep")
+        except (TypeError, ValueError):
+            pass
+        try:
+            if float(r.get("energy_level") or 5) <= 2:
+                flags.append("Low energy")
+        except (TypeError, ValueError):
+            pass
+        try:
+            if float(r.get("body_soreness") or 1) >= 4:
+                flags.append("Elevated soreness")
+        except (TypeError, ValueError):
+            pass
+        try:
+            if float(r.get("stress") or 1) >= 4:
+                flags.append("High stress")
+        except (TypeError, ValueError):
+            pass
+        avail = str(r.get("availability_status") or "").strip()
+        if avail and avail not in ("Available", ""):
+            flags.append(f"Self-reported: {avail}")
+            if avail == "Unavailable":
+                severe = True
+        if band == "Flagged":
+            severe = True
+        if not flags:
+            continue
+        level = "Monitor Closely" if severe else "Monitor"
+        cards.append({"player": r["player_name"], "flags": flags, "level": level, "wpct": wp})
+    cards.sort(key=lambda c: (0 if c["level"] == "Monitor Closely" else 1, c["wpct"]))
+    return cards
+
+
+def _sc_recommendation(per_player: pd.DataFrame, cards: list, au_overload: list) -> str:
+    if per_player.empty:
+        return "No check-ins submitted in this date range — no recommendation available."
+    parts = []
+    if cards:
+        closely = [c["player"] for c in cards if c["level"] == "Monitor Closely"]
+        monitor = [c["player"] for c in cards if c["level"] == "Monitor"]
+        parts.append("Proceed with planned training.")
+        if closely:
+            parts.append(f"Manage loads carefully for {', '.join(closely)} — review before full participation.")
+        if monitor:
+            parts.append(f"Continue monitoring {', '.join(monitor)} and adjust as required.")
+    else:
+        parts.append("Squad readiness is good across the board. Proceed with planned training.")
+    if au_overload:
+        parts.append(f"Weekly load is outside the target band for {', '.join(au_overload)} — review training volume.")
+    parts.append("Prioritise recovery and early management of any flagged complaints.")
+    return " ".join(parts)
 
 
 @st.fragment
@@ -250,287 +581,438 @@ def render_overview():
     evening  = load_evening()
     today    = date.today()
 
-    col_left, col_right = st.columns([1, 1], gap="large")
-
-    # ── LEFT COLUMN ──────────────────────────────────────────────────────────
-    with col_left:
-
-        # ── Team Availability ────────────────────────────────────────────────
-        st.markdown("### Team Availability")
-
-        avail_map = {
-            "Available":       ("#22c55e", ["Available"]),
-            "Modified Training": ("#00c2ff", ["Modified Training"]),
-            "Recovery Only":   ("#f59e0b", ["Recovery Only"]),
-            "Rehab":           ("#f97316", ["Rehab"]),
-            "Unavailable":     ("#ef4444", ["Unavailable"]),
-            "Not Submitted":   ("#6b7a90", []),
-        }
-
-        avail_counts = {k: 0 for k in avail_map}
-        total_players = len(roster) if not roster.empty else 0
-
-        if not wellness.empty and "date" in wellness.columns:
-            today_w = wellness[wellness["date"] == today]
-            if not today_w.empty:
-                latest = today_w.sort_values("timestamp").groupby("player_name").last()
-                sc = latest["availability_status"].fillna("Available").value_counts().to_dict()
-                for label, (color, statuses) in avail_map.items():
-                    avail_counts[label] = sum(sc.get(s, 0) for s in statuses)
-                submitted_count = sum(avail_counts[l] for l in avail_map if l != "Not Submitted")
-                avail_counts["Not Submitted"] = max(0, total_players - submitted_count)
-            else:
-                avail_counts["Not Submitted"] = total_players
+    # ── Header row: title + start→end date range ─────────────────────────────
+    c_h1, c_h2 = st.columns([3, 1])
+    with c_h1:
+        st.markdown(
+            "<div style='font-size:22px;font-weight:800;letter-spacing:1px;'>AMS OVERVIEW</div>"
+            "<div style='font-size:11px;color:#6b7a90;letter-spacing:2px;text-transform:uppercase;'>"
+            "S&amp;C Snapshot · Weekly Analysis</div>",
+            unsafe_allow_html=True,
+        )
+    with c_h2:
+        dr = st.date_input("Date range", value=(today - timedelta(days=6), today),
+                           key="ov_range", label_visibility="collapsed")
+        if isinstance(dr, (tuple, list)) and len(dr) == 2:
+            start, end = dr
+        elif isinstance(dr, (tuple, list)) and len(dr) == 1:
+            start = end = dr[0]
         else:
-            avail_counts["Not Submitted"] = total_players
+            start = end = dr
 
-        pie_labels  = list(avail_counts.keys())
-        pie_values  = list(avail_counts.values())
-        pie_colors  = [avail_map[k][0] for k in pie_labels]
+    if start > end:
+        start, end = end, start
+    span_days     = (end - start).days + 1
+    total_players = len(roster) if not roster.empty else 0
+    per_player    = aggregate_range(wellness, start, end)
 
-        fig_pie = go.Figure(go.Pie(
-            labels=pie_labels,
-            values=pie_values,
-            marker=dict(colors=pie_colors),
-            hole=0.45,
-            textinfo="percent",
+    st.markdown("<hr style='border-color:#1f2530;margin:10px 0 16px;'>", unsafe_allow_html=True)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # ROW 1 — Squad Readiness · Wellness Summary · Availability
+    # ════════════════════════════════════════════════════════════════════════
+    r1c1, r1c2, r1c3 = st.columns([1, 1.2, 1], gap="medium")
+
+    # ── Squad Readiness donut ────────────────────────────────────────────────
+    with r1c1:
+        _panel_title("Squad Readiness")
+        ready = monitor = flagged = 0
+        avg_pct = 0
+        if not per_player.empty:
+            pcts = per_player.apply(wellness_pct, axis=1)
+            avg_pct = int(round(pcts.mean()))
+            for p in pcts:
+                b, _ = wellness_band(int(p))
+                if   b == "Ready":   ready   += 1
+                elif b == "Monitor": monitor += 1
+                else:                flagged += 1
+        donut = go.Figure(go.Pie(
+            labels=["Ready", "Monitor", "Flagged"],
+            values=[ready, monitor, flagged],
+            marker=dict(colors=["#22c55e", "#f59e0b", "#ef4444"]),
+            hole=0.72, sort=False, textinfo="none",
             hovertemplate="%{label}: %{value}<extra></extra>",
         ))
-        pie_layout = {**DARK_LAYOUT, "margin": dict(t=8, b=8, l=8, r=8)}
-        fig_pie.update_layout(
-            **pie_layout,
-            height=230,
-            showlegend=False,
-        )
+        donut.add_annotation(text=f"<b>{avg_pct}%</b>", x=0.5, y=0.54, showarrow=False,
+                             font=dict(size=30, color="#e8edf5"))
+        donut.add_annotation(text="AVG WELLNESS", x=0.5, y=0.36, showarrow=False,
+                             font=dict(size=9, color="#6b7a90"))
+        donut.update_layout(**{**DARK_LAYOUT, "margin": dict(t=4, b=4, l=4, r=4)},
+                            height=180, showlegend=False)
+        st.plotly_chart(donut, use_container_width=True, key="ov_readiness_donut")
+        for label, color, cnt in [("Ready (80%+)", "#22c55e", ready),
+                                  ("Monitor (60-79%)", "#f59e0b", monitor),
+                                  ("Flagged (<60%)", "#ef4444", flagged)]:
+            st.markdown(
+                f"<div style='display:flex;justify-content:space-between;font-size:12px;margin:3px 0;'>"
+                f"<span><span style='display:inline-block;width:9px;height:9px;border-radius:50%;"
+                f"background:{color};margin-right:6px;'></span>{label}</span>"
+                f"<span style='font-weight:700;color:{color};'>{cnt}</span></div>",
+                unsafe_allow_html=True)
+        st.markdown(
+            f"<div style='display:flex;justify-content:space-between;font-size:12px;color:#6b7a90;"
+            f"border-top:1px solid #1f2530;margin-top:6px;padding-top:6px;'><span>Total Players</span>"
+            f"<span style='font-weight:700;'>{total_players}</span></div>", unsafe_allow_html=True)
 
-        pc_col, legend_col = st.columns([2, 1])
-        with pc_col:
-            st.plotly_chart(fig_pie, use_container_width=True)
-        with legend_col:
-            st.markdown("<div style='height:40px;'></div>", unsafe_allow_html=True)
-            for label, (color, _) in avail_map.items():
-                cnt = avail_counts.get(label, 0)
-                st.markdown(f"""
-                <div style="margin-bottom:10px;">
-                  <span style="display:inline-block;width:12px;height:12px;border-radius:50%;
-                               background:{color};margin-right:6px;vertical-align:middle;"></span>
-                  <span style="color:#e8edf5;font-size:13px;">{label}</span>
-                  <span style="float:right;font-weight:700;color:{color};font-size:18px;">{cnt}</span>
-                </div>
-                """, unsafe_allow_html=True)
+    # ── Wellness Summary (squad average over range) ──────────────────────────
+    with r1c2:
+        _panel_title("Wellness Summary (Squad Average)")
 
-        st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
-        st.divider()
+        def _avg(col):
+            if per_player.empty or col not in per_player.columns:
+                return None
+            s = pd.to_numeric(per_player[col], errors="coerce").dropna()
+            return round(s.mean(), 1) if not s.empty else None
 
-        # ── Fast Bowlers Status ───────────────────────────────────────────────
-        st.markdown("### Fast Bowlers Status")
+        def _fmt(v, suf=""):
+            return f"{v}{suf}" if v is not None else "—"
 
-        fb_names = fast_bowlers(roster)
-        if not fb_names:
-            st.info("No fast bowlers in roster yet.")
+        sleep_h  = _avg("sleep_hours")
+        energy   = _avg("energy_level")
+        soreness = _avg("body_soreness")
+        mood     = _avg("mood")
+        stress   = _avg("stress")
+        cards = [
+            ("🌙", _fmt(sleep_h, "h"), "Sleep", "#00c2ff"),
+            ("⚡", _fmt(energy) + ("/5" if energy is not None else ""), "Energy", "#22c55e"),
+            ("🔥", _fmt(soreness) + ("/5" if soreness is not None else ""), "Soreness", "#f59e0b"),
+            ("🙂", _fmt(mood) + ("/5" if mood is not None else ""), "Mood", "#facc15"),
+            ("🧠", _fmt(stress) + ("/5" if stress is not None else ""), "Stress", "#a78bfa"),
+        ]
+        st.markdown(
+            "<div style='display:flex;gap:6px;background:#161a22;border:1px solid #1f2530;"
+            "border-radius:10px;padding:20px 8px;'>" +
+            "".join(_ams_metric(*c) for c in cards) + "</div>",
+            unsafe_allow_html=True)
+        st.caption(f"{len(per_player)} of {total_players} players submitted · "
+                   f"{start:%d %b} → {end:%d %b} ({span_days}d)")
+
+        # ── Check-in submission status (morning + evening over range) ────────
+        roster_names = (sorted(roster["name"].dropna().astype(str).str.strip()
+                               .replace("", pd.NA).dropna().unique().tolist())
+                        if not roster.empty and "name" in roster.columns else [])
+
+        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+        checkin_day = st.date_input("Check-in date", value=end, min_value=start,
+                                    max_value=end, key="ov_checkin_day")
+
+        def _submitters(df):
+            if df.empty or "date" not in df.columns or "player_name" not in df.columns:
+                return set()
+            day = df[df["date"] == checkin_day]
+            return set(day["player_name"].astype(str).str.strip())
+
+        morning_done = _submitters(wellness)
+        evening_done = _submitters(evening)
+        m_not = [n for n in roster_names if n not in morning_done]
+        e_not = [n for n in roster_names if n not in evening_done]
+
+        def _checkin_status(title, done, not_done):
+            _panel_title(title)
+            st.markdown(
+                f"<div style='font-size:22px;font-weight:800;color:#e8edf5;'>"
+                f"{len(done)} <span style='font-size:12px;color:#6b7a90;font-weight:600;'>"
+                f"/ {total_players} players</span></div>", unsafe_allow_html=True)
+            if not_done:
+                with st.expander(f"Not submitted ({len(not_done)})"):
+                    st.markdown("<br>".join(not_done), unsafe_allow_html=True)
+
+        sc1, sc2 = st.columns(2)
+        with sc1:
+            _checkin_status("Morning Check-in Submitted", morning_done, m_not)
+        with sc2:
+            _checkin_status("Evening Check-in Submitted", evening_done, e_not)
+
+    # ── Availability Overview donut ──────────────────────────────────────────
+    with r1c3:
+        _panel_title("Availability Overview")
+        bucket_counts = {b: 0 for b, _ in AMS_AVAIL_BUCKETS}
+        not_set = 0
+        if not roster.empty and "current_status" in roster.columns:
+            for v in roster["current_status"].fillna("").tolist():
+                key = _AVAIL_TO_BUCKET.get(str(v).strip())
+                if key:
+                    bucket_counts[key] += 1
+                else:
+                    not_set += 1
+        # Fall back to self-reported availability if the roster has no statuses set.
+        if sum(bucket_counts.values()) == 0 and not per_player.empty and "availability_status" in per_player.columns:
+            for v in per_player["availability_status"].fillna("Available").tolist():
+                bucket_counts[_AVAIL_TO_BUCKET.get(str(v).strip(), "Full Training")] += 1
+            not_set = max(0, total_players - len(per_player))
+        labels = [b for b, _ in AMS_AVAIL_BUCKETS]
+        colors = [c for _, c in AMS_AVAIL_BUCKETS]
+        values = [bucket_counts[b] for b in labels]
+        if not_set:
+            labels = labels + ["Not Set"]; colors = colors + ["#6b7a90"]; values = values + [not_set]
+        adonut = go.Figure(go.Pie(labels=labels, values=values, marker=dict(colors=colors),
+                                  hole=0.62, sort=False, textinfo="none",
+                                  hovertemplate="%{label}: %{value}<extra></extra>"))
+        adonut.update_layout(**{**DARK_LAYOUT, "margin": dict(t=4, b=4, l=4, r=4)},
+                             height=168, showlegend=False)
+        st.plotly_chart(adonut, use_container_width=True, key="ov_avail_donut")
+        for lab, col, val in zip(labels, colors, values):
+            pctv = round(val / total_players * 100) if total_players else 0
+            st.markdown(
+                f"<div style='display:flex;justify-content:space-between;font-size:12px;margin:3px 0;'>"
+                f"<span><span style='display:inline-block;width:9px;height:9px;border-radius:50%;"
+                f"background:{col};margin-right:6px;'></span>{lab}</span>"
+                f"<span style='font-weight:700;color:{col};'>{val} "
+                f"<span style='color:#6b7a90;font-weight:400;'>({pctv}%)</span></span></div>",
+                unsafe_allow_html=True)
+
+    st.markdown("<div style='height:18px;'></div>", unsafe_allow_html=True)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # ROW 2 — Daily Wellness · Top Training Load · Weekly Load
+    # ════════════════════════════════════════════════════════════════════════
+    r2c1, r2c2, r2c3 = st.columns([1.3, 1, 1], gap="medium")
+
+    def _c_hi(v):   # higher is better
+        try: v = float(v)
+        except (TypeError, ValueError): return "#6b7a90"
+        return "#22c55e" if v >= 4 else ("#ef4444" if v <= 2 else "#f59e0b")
+
+    def _c_lo(v):   # lower is better
+        try: v = float(v)
+        except (TypeError, ValueError): return "#6b7a90"
+        return "#22c55e" if v <= 2 else ("#ef4444" if v >= 4 else "#f59e0b")
+
+    def _num(r, col):
+        val = r.get(col)
+        if pd.isna(val) or val == "":
+            return "—"
+        try:
+            return f"{float(val):.1f}".rstrip("0").rstrip(".")
+        except (TypeError, ValueError):
+            return val
+
+    with r2c1:
+        _panel_title("Wellness Overview (Range Avg)")
+        if per_player.empty:
+            st.info("No check-ins submitted in this range.")
         else:
-            sel_bowler = st.selectbox("Select FB Name", ["All"] + fb_names, key="fb_select")
+            tbl = per_player.copy()
+            tbl["wpct"] = tbl.apply(wellness_pct, axis=1)
+            tbl = tbl.sort_values("wpct")
+            head = "".join(
+                f"<th style='text-align:right;padding:4px 6px;color:#6b7a90;font-weight:500;'>{h}</th>"
+                for h in ["Sleep", "Energy", "Sore", "Mood", "Stress", "Well%"])
+            body = ""
+            for _, r in tbl.iterrows():
+                sh = _num(r, "sleep_hours")
+                wp = int(r["wpct"]); _, wcol = wellness_band(wp)
+                body += (
+                    f"<tr style='border-top:1px solid #1f2530;'>"
+                    f"<td style='padding:5px 6px;'>{r['player_name']}</td>"
+                    f"<td style='text-align:right;padding:5px 6px;'>{(str(sh)+'h') if sh != '—' else '—'}</td>"
+                    f"<td style='text-align:right;color:{_c_hi(r.get('energy_level'))};'>{_num(r,'energy_level')}</td>"
+                    f"<td style='text-align:right;color:{_c_lo(r.get('body_soreness'))};'>{_num(r,'body_soreness')}</td>"
+                    f"<td style='text-align:right;color:{_c_hi(r.get('mood'))};'>{_num(r,'mood')}</td>"
+                    f"<td style='text-align:right;color:{_c_lo(r.get('stress'))};'>{_num(r,'stress')}</td>"
+                    f"<td style='text-align:right;font-weight:700;color:{wcol};padding-right:6px;'>{wp}%</td></tr>")
+            st.markdown(
+                f"<div style='max-height:340px;overflow-y:auto;'>"
+                f"<table style='width:100%;border-collapse:collapse;font-size:12px;'>"
+                f"<thead><tr style='position:sticky;top:0;background:#0e1117;z-index:1;'>"
+                f"<th style='text-align:left;padding:4px 6px;color:#6b7a90;font-weight:500;'>Player</th>"
+                f"{head}</tr></thead><tbody>{body}</tbody></table></div>", unsafe_allow_html=True)
 
-            display_bowlers = fb_names if sel_bowler == "All" else [sel_bowler]
+    with r2c2:
+        _panel_title("Squad Training Loads")
+        load_rows = _top_session_loads(evening, start, end, roster)
+        if not load_rows:
+            st.info("No session load in this range.")
+        else:
+            body = ""
+            for r in load_rows:
+                lc = _load_color_for_role(r["load"], r.get("role", ""), r.get("is_fb", False))
+                body += (
+                    f"<tr style='border-top:1px solid #1f2530;'>"
+                    f"<td style='padding:5px 6px;'>{r['player']}</td>"
+                    f"<td style='text-align:right;'>{r['dur']}m</td>"
+                    f"<td style='text-align:right;'>{r['rpe']}</td>"
+                    f"<td style='text-align:right;font-weight:700;color:{lc};"
+                    f"padding-right:6px;'>{r['load']}</td></tr>")
+            st.markdown(
+                "<div style='max-height:340px;overflow-y:auto;'>"
+                "<table style='width:100%;border-collapse:collapse;font-size:12px;'>"
+                "<thead><tr style='position:sticky;top:0;background:#0e1117;z-index:1;'>"
+                "<th style='text-align:left;color:#6b7a90;font-weight:500;padding:4px 6px;'>Player</th>"
+                "<th style='text-align:right;color:#6b7a90;font-weight:500;'>Dur</th>"
+                "<th style='text-align:right;color:#6b7a90;font-weight:500;'>RPE</th>"
+                "<th style='text-align:right;color:#6b7a90;font-weight:500;padding-right:6px;'>Load</th>"
+                f"</tr></thead><tbody>{body}</tbody></table></div>", unsafe_allow_html=True)
+            st.caption("Peak session per player · Load = RPE × mins")
+            st.markdown(
+                "<div style='display:flex;gap:14px;margin-top:6px;flex-wrap:wrap;'>"
+                "<span style='font-size:11px;color:#6b7a90;display:flex;align-items:center;gap:4px;'>"
+                "<span style='width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;'></span>In range</span>"
+                "<span style='font-size:11px;color:#6b7a90;display:flex;align-items:center;gap:4px;'>"
+                "<span style='width:8px;height:8px;border-radius:50%;background:#f59e0b;display:inline-block;'></span>Below target</span>"
+                "<span style='font-size:11px;color:#6b7a90;display:flex;align-items:center;gap:4px;'>"
+                "<span style='width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block;'></span>Above target</span>"
+                "</div>"
+                "<div style='margin-top:4px;font-size:10px;color:#4b5563;'>"
+                "Fast Bowler 2,500–4,000 &nbsp;·&nbsp; Spinner 2,000–3,000 &nbsp;·&nbsp; Batsman 2,000–3,500 AU"
+                "</div>",
+                unsafe_allow_html=True)
 
-            now_ts = pd.Timestamp(today)
-            cutoff_week = now_ts - timedelta(days=7)
+    with r2c3:
+        _panel_title("Weekly Load (AU)")
+        wloads = _weekly_loads(evening, roster, start, end)
+        if not wloads:
+            st.info("No load data in this range.")
+        else:
+            wl = wloads[:8][::-1]
+            bar_colors = ["#22c55e" if w["in_band"] else "#ef4444" for w in wl]
+            fig = go.Figure(go.Bar(
+                x=[w["weekly"] for w in wl], y=[w["player"] for w in wl], orientation="h",
+                marker_color=bar_colors,
+                text=[f"{w['weekly']:,}" for w in wl], textposition="outside",
+                cliponaxis=False,
+                customdata=[[w["band"], w["lo"], w["hi"]] for w in wl],
+                hovertemplate="%{y}: %{x:,} AU/wk<br>%{customdata[0]} band "
+                              "%{customdata[1]:,}–%{customdata[2]:,}<extra></extra>"))
+            fig.update_layout(**{**DARK_LAYOUT, "margin": dict(t=6, b=6, l=6, r=70)},
+                              height=220, xaxis=dict(visible=False),
+                              yaxis=dict(tickfont=dict(size=11)), showlegend=False)
+            st.plotly_chart(fig, use_container_width=True, key="ov_weekly_load")
+            st.caption("AU = RPE × mins, normalised to 7 days · "
+                       "🟥 outside role band (Bat 2,500–4,000 · Bowl 3,000–5,500 AU/wk)")
 
-            INTENSITY_COLOR = {"Low": "#22c55e", "Moderate": "#f59e0b", "High": "#ef4444"}
+    st.markdown("<div style='height:18px;'></div>", unsafe_allow_html=True)
 
-            rows = []
-            for name in display_bowlers:
-                bowling_days = 0
-                dominant_intensity = "—"
-                intensity_color = "#6b7a90"
-                if not evening.empty:
-                    pe = evening[
-                        (evening["player_name"] == name) &
-                        (evening["timestamp"] >= cutoff_week) &
-                        (evening["did_bowl"].astype(str).str.lower().isin(["true", "1", "yes"]))
-                    ]
-                    if not pe.empty:
-                        bowling_days = len(pe["date"].unique())
-                        intensities = pe["bowling_intensity"].dropna()
-                        if not intensities.empty:
-                            dominant_intensity = intensities.mode().iloc[0]
-                            intensity_color = INTENSITY_COLOR.get(dominant_intensity, "#6b7a90")
-                rows.append({
-                    "Name": name,
-                    "Bowling Days": bowling_days,
-                    "_intensity": dominant_intensity,
-                    "_color": intensity_color,
-                })
+    # ════════════════════════════════════════════════════════════════════════
+    # ROW 3 — Bowling Load · Injury / Complaints · Wellness Trend
+    # ════════════════════════════════════════════════════════════════════════
+    r3c1, r3c2, r3c3 = st.columns([1, 1, 1.3], gap="medium")
 
-            for r in rows:
-                col_n, col_b, col_s = st.columns([2, 1, 1])
-                with col_n:
-                    st.markdown(f"<span style='font-size:14px;'>{r['Name']}</span>", unsafe_allow_html=True)
-                with col_b:
-                    st.markdown(f"<span style='font-size:14px;font-weight:600;'>{r['Bowling Days']}d</span>", unsafe_allow_html=True)
-                with col_s:
-                    st.markdown(f"""
-                    <span style="background:{r['_color']}22;color:{r['_color']};
-                                 border:1px solid {r['_color']}55;border-radius:4px;
-                                 padding:2px 10px;font-size:12px;font-weight:600;">
-                      {r['_intensity']}
-                    </span>""", unsafe_allow_html=True)
-            st.markdown("<div style='height:4px;'></div>", unsafe_allow_html=True)
+    with r3c1:
+        _panel_title("Bowling Load (Range)")
+        bl = _bowling_load(evening, roster, start, end)
+        if not bl:
+            st.info("No bowling logged in this range.")
+        else:
+            body = ""
+            for r in bl:
+                ch = r["change"]
+                ch_col = ("#ef4444" if ch is not None and ch >= 15
+                          else "#22c55e" if ch is not None and ch < 0 else "#f59e0b")
+                ch_txt = "—" if ch is None else (f"+{ch}%" if ch >= 0 else f"{ch}%")
+                body += (
+                    f"<tr style='border-top:1px solid #1f2530;'>"
+                    f"<td style='padding:5px 6px;'>{r['player']}</td>"
+                    f"<td style='text-align:right;font-weight:600;'>{r['this_week']}</td>"
+                    f"<td style='text-align:right;color:#6b7a90;'>{r['prev_week']}</td>"
+                    f"<td style='text-align:right;font-weight:700;color:{ch_col};"
+                    f"padding-right:6px;'>{ch_txt}</td></tr>")
+            st.markdown(
+                "<div style='max-height:340px;overflow-y:auto;'>"
+                "<table style='width:100%;border-collapse:collapse;font-size:12px;'>"
+                "<thead><tr style='position:sticky;top:0;background:#0e1117;z-index:1;'>"
+                "<th style='text-align:left;color:#6b7a90;font-weight:500;padding:4px 6px;'>Player</th>"
+                "<th style='text-align:right;color:#6b7a90;font-weight:500;'>This</th>"
+                "<th style='text-align:right;color:#6b7a90;font-weight:500;'>Prev</th>"
+                "<th style='text-align:right;color:#6b7a90;font-weight:500;padding-right:6px;'>&Delta;%</th>"
+                f"</tr></thead><tbody>{body}</tbody></table></div>", unsafe_allow_html=True)
+            st.caption("Est. balls bowled (from volume buckets) · range vs prior equal window")
 
-    # ── RIGHT COLUMN ─────────────────────────────────────────────────────────
-    with col_right:
+    with r3c2:
+        _panel_title("Injury / Physical Complaints")
+        items = _injury_items(wellness, start, end)
+        if not items:
+            st.success("No physical complaints reported.")
+        else:
+            sev_col = {"Severe": "#ef4444", "Moderate": "#f59e0b", "Mild": "#22c55e"}
+            body = ""
+            for it in items:
+                sc = sev_col.get(it["severity"], "#6b7a90")
+                body += (
+                    f"<tr style='border-top:1px solid #1f2530;'>"
+                    f"<td style='padding:5px 6px;'>{it['player']}</td>"
+                    f"<td style='font-size:11px;'>{it['area']}</td>"
+                    f"<td style='color:{sc};font-weight:600;'>{it['severity']}</td>"
+                    f"<td style='text-align:right;padding-right:6px;'>{it['days']}</td></tr>")
+            st.markdown(
+                "<div style='max-height:340px;overflow-y:auto;'>"
+                "<table style='width:100%;border-collapse:collapse;font-size:12px;'>"
+                "<thead><tr style='position:sticky;top:0;background:#0e1117;z-index:1;'>"
+                "<th style='text-align:left;color:#6b7a90;font-weight:500;padding:4px 6px;'>Player</th>"
+                "<th style='text-align:left;color:#6b7a90;font-weight:500;'>Area</th>"
+                "<th style='text-align:left;color:#6b7a90;font-weight:500;'>Severity</th>"
+                "<th style='text-align:right;color:#6b7a90;font-weight:500;padding-right:6px;'>Days</th>"
+                f"</tr></thead><tbody>{body}</tbody></table></div>", unsafe_allow_html=True)
 
-        # ── Readiness Scores (by date) ────────────────────────────────────────
-        st.markdown("### Readiness Scores")
+    with r3c3:
+        _panel_title("Wellness Trend")
+        if wellness.empty or "date" not in wellness.columns:
+            st.info("No wellness history.")
+        else:
+            hist = wellness[(wellness["date"] >= start) & (wellness["date"] <= end)].copy()
+            if hist.empty:
+                st.info("No wellness in this range.")
+            else:
+                hist["wpct"] = hist.apply(wellness_pct, axis=1)
+                daily = hist.sort_values("timestamp").groupby(["date", "player_name"]).last().reset_index()
+                squad = daily.groupby("date")["wpct"].mean().reset_index()
+                squad["date_str"] = squad["date"].astype(str)
+                fig = go.Figure()
+                flagged_players = []
+                if not per_player.empty:
+                    lp = per_player.copy(); lp["wpct"] = lp.apply(wellness_pct, axis=1)
+                    flagged_players = lp.sort_values("wpct").head(3)["player_name"].tolist()
+                palette = ["#ef4444", "#f59e0b", "#00c2ff"]
+                for i, pl in enumerate(flagged_players):
+                    pld = daily[daily["player_name"] == pl]
+                    if not pld.empty:
+                        fig.add_trace(go.Scatter(
+                            x=pld["date"].astype(str), y=pld["wpct"], name=pl,
+                            mode="lines+markers", line=dict(color=palette[i % 3], width=2),
+                            marker=dict(size=5)))
+                fig.add_trace(go.Scatter(
+                    x=squad["date_str"], y=squad["wpct"].round(0), name="Squad Avg",
+                    mode="lines+markers", line=dict(color="#9fb0c6", width=2, dash="dash"),
+                    marker=dict(size=5)))
+                fig.update_layout(**{**DARK_LAYOUT, "margin": dict(t=6, b=6, l=6, r=6)},
+                                  height=220, yaxis=dict(range=[0, 100], gridcolor="#1f2530", title=""),
+                                  xaxis=dict(gridcolor="#1f2530"),
+                                  legend=dict(orientation="h", y=-0.25, font=dict(size=10)))
+                st.plotly_chart(fig, use_container_width=True, key="ov_wellness_trend")
 
-        date_options = []
-        if not wellness.empty and "date" in wellness.columns:
-            date_options = sorted(wellness["date"].dropna().unique(), reverse=True)
-
-        sel_date = st.selectbox(
-            "Date",
-            options=date_options if date_options else [today],
-            format_func=lambda d: str(d),
-            key="readiness_date",
-        )
-
-        green_count = yellow_count = red_count = 0
-        if not wellness.empty:
-            day_df = wellness[wellness["date"] == sel_date]
-            latest_per_player = day_df.sort_values("timestamp").groupby("player_name").last()
-            for _, row in latest_per_player.iterrows():
-                sc = readiness_score(row)
-                band, _ = readiness_band(sc)
-                if band == "Green":   green_count  += 1
-                elif band == "Yellow": yellow_count += 1
-                else:                  red_count    += 1
-
-        r1, r2, r3 = st.columns(3)
-        for col, label, color, count in [
-            (r1, "Green",  "#22c55e", green_count),
-            (r2, "Yellow", "#f59e0b", yellow_count),
-            (r3, "Red",    "#ef4444", red_count),
-        ]:
+    # ════════════════════════════════════════════════════════════════════════
+    # Players Requiring Attention + S&C Recommendation
+    # ════════════════════════════════════════════════════════════════════════
+    st.markdown("<hr style='border-color:#1f2530;margin:18px 0 14px;'>", unsafe_allow_html=True)
+    _panel_title("Players Requiring Attention")
+    cards = _attention_cards(per_player)
+    au_overload = [w["player"] for w in _weekly_loads(evening, roster, start, end) if not w["in_band"]]
+    if not cards:
+        st.success("No players currently require attention.")
+    else:
+        cols = st.columns(4)
+        for col, card in zip(cols, cards[:4]):
             with col:
-                st.markdown(f"""
-                <div class="metric-card" style="border-top:2px solid {color};text-align:center;">
-                  <div class="metric-label" style="color:{color};">{label}</div>
-                  <div class="metric-value" style="color:{color};font-size:44px;">{count}</div>
-                </div>
-                """, unsafe_allow_html=True)
+                lvl_col = "#ef4444" if card["level"] == "Monitor Closely" else "#f59e0b"
+                flags_html = "".join(f"<li style='margin:2px 0;'>{f}</li>" for f in card["flags"][:3])
+                st.markdown(
+                    f"<div style='background:#161a22;border:1px solid #1f2530;border-left:3px solid {lvl_col};"
+                    f"border-radius:8px;padding:12px 14px;height:100%;'>"
+                    f"<div style='font-weight:700;font-size:13px;margin-bottom:6px;'>🚩 {card['player']}</div>"
+                    f"<ul style='margin:0;padding-left:16px;font-size:11px;color:#c3cedd;'>{flags_html}</ul>"
+                    f"<div style='color:{lvl_col};font-size:11px;font-weight:700;margin-top:8px;'>"
+                    f"{card['level']}</div></div>", unsafe_allow_html=True)
 
-        st.markdown("<div style='height:4px;'></div>", unsafe_allow_html=True)
-        st.caption("Readiness = Sleep(5) + Energy(5) + Soreness(5) = max 15 · 13–15 Green · 10–12 Yellow · <10 Red")
+    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+    rec = _sc_recommendation(per_player, cards, au_overload)
+    st.markdown(
+        f"<div style='background:rgba(0,194,255,0.06);border:1px solid rgba(0,194,255,0.25);"
+        f"border-radius:10px;padding:14px 18px;'>"
+        f"<div style='color:#00c2ff;font-weight:700;font-size:13px;margin-bottom:6px;'>"
+        f"🛡 S&amp;C RECOMMENDATION</div>"
+        f"<div style='font-size:13px;color:#c3cedd;line-height:1.6;'>{rec}</div></div>",
+        unsafe_allow_html=True)
 
-        st.divider()
-
-        # ── Top Concerns ──────────────────────────────────────────────────────
-        st.markdown("### Top Concerns")
-
-        concerns = []
-        if not wellness.empty:
-            today_df = wellness[wellness["date"] == today]
-            latest   = today_df.sort_values("timestamp").groupby("player_name").last()
-            for player_name, row in latest.iterrows():
-                flags = []
-                # new format: tightness_locations is a comma-separated string
-                locs = str(row.get("tightness_locations") or "").strip()
-                if locs and locs.lower() != "none":
-                    for loc in locs.split(","):
-                        loc = loc.strip()
-                        if loc and loc.lower() != "none":
-                            flags.append(f"{loc} tightness")
-                # old format: per-area 1-5 scale fields (backward compat)
-                if not locs:
-                    if pd.notna(row.get("hamstring_tightness")) and row["hamstring_tightness"] >= 4:
-                        flags.append("Hamstring tightness")
-                    if pd.notna(row.get("groin_stiffness")) and row["groin_stiffness"] >= 4:
-                        flags.append("Groin tightness")
-                    if pd.notna(row.get("lower_back_stiffness")) and row["lower_back_stiffness"] >= 4:
-                        flags.append("Lower back tightness")
-                if str(row.get("is_sick", "")).lower() in ("true", "1", "yes"):
-                    flags.append("Sick today")
-                if row.get("sleep_quality", 5) <= 2:
-                    flags.append("Low sleep quality")
-                if row.get("energy_level", 5) <= 2:
-                    flags.append("Low energy")
-                if row.get("body_soreness", 1) >= 4:
-                    flags.append("High soreness")
-                try:
-                    if float(row.get("mood") or 5) <= 2:
-                        flags.append("Low mood")
-                except (TypeError, ValueError):
-                    pass
-                try:
-                    if float(row.get("stress") or 1) >= 4:
-                        flags.append("High stress")
-                except (TypeError, ValueError):
-                    pass
-                try:
-                    if float(row.get("sleep_hours") or 8) < 6:
-                        flags.append(f"Low sleep ({row.get('sleep_hours')}h)")
-                except (TypeError, ValueError):
-                    pass
-                avail = str(row.get("availability_status") or "").strip()
-                if avail and avail not in ("Available", ""):
-                    flags.append(f"Self-reported: {avail}")
-                if flags:
-                    concerns.append({"player": player_name, "flags": flags})
-
-        if concerns:
-            for i, c in enumerate(concerns[:5], 1):
-                flag_str = " / ".join(c["flags"])
-                st.markdown(f"""
-                <div class="alert-item">
-                  <div class="alert-name">{i}. {c['player']}</div>
-                  <div class="alert-tags">{flag_str}</div>
-                </div>""", unsafe_allow_html=True)
-        else:
-            st.success("No concerns flagged today")
-
-        st.divider()
-
-        # ── Check-in Completion ───────────────────────────────────────────────
-        total = len(roster) if not roster.empty else 0
-        roster_names = roster["name"].tolist() if not roster.empty else []
-
-        morning_submitted = set()
-        if not wellness.empty:
-            morning_submitted = set(wellness[wellness["date"] == today]["player_name"].tolist())
-
-        evening_submitted = set()
-        if not evening.empty and "date" in evening.columns:
-            evening_submitted = set(evening[evening["date"] == today]["player_name"].tolist())
-
-        checkin_col1, checkin_col2 = st.columns(2)
-
-        with checkin_col1:
-            st.markdown("### Morning Check-in Submitted")
-            st.markdown(f"""
-            <div style="font-size:32px;font-weight:800;color:#e8edf5;margin:8px 0;">
-              {len(morning_submitted)}
-              <span style="font-size:18px;color:#6b7a90;">/ {total} players</span>
-            </div>
-            """, unsafe_allow_html=True)
-            missing_morning = [n for n in roster_names if n not in morning_submitted]
-            if missing_morning:
-                with st.expander(f"Not submitted ({len(missing_morning)})"):
-                    for name in missing_morning:
-                        st.markdown(f"- {name}")
-
-        with checkin_col2:
-            st.markdown("### Evening Check-in Submitted")
-            st.markdown(f"""
-            <div style="font-size:32px;font-weight:800;color:#e8edf5;margin:8px 0;">
-              {len(evening_submitted)}
-              <span style="font-size:18px;color:#6b7a90;">/ {total} players</span>
-            </div>
-            """, unsafe_allow_html=True)
-            missing_evening = [n for n in roster_names if n not in evening_submitted]
-            if missing_evening:
-                with st.expander(f"Not submitted ({len(missing_evening)})"):
-                    for name in missing_evening:
-                        st.markdown(f"- {name}")
 
 with tab_overview:
     render_overview()
@@ -730,26 +1212,6 @@ with tab_raw:
 # ════════════════════════════════════════════════════════════════════════════
 # TAB 3 — PLAYER LOAD  (session + bowling combined)
 # ════════════════════════════════════════════════════════════════════════════
-def _rpe_color(rpe: float) -> str:
-    if rpe <= 2:  return "#22c55e"
-    if rpe <= 4:  return "#00c2ff"
-    if rpe <= 6:  return "#f59e0b"
-    if rpe <= 8:  return "#ef4444"
-    return "#ff4444"
-
-def _load_color(load: float) -> str:
-    if load < 200: return "#22c55e"
-    if load < 400: return "#f59e0b"
-    return "#ef4444"
-
-def _metric_card(label: str, value: str, sub: str = "", color: str = "#e8edf5") -> str:
-    return f"""
-    <div class="metric-card">
-      <div class="metric-label">{label}</div>
-      <div class="metric-value" style="color:{color};font-size:32px;">{value}</div>
-      {"<div style='font-size:11px;color:#6b7a90;margin-top:4px;'>"+sub+"</div>" if sub else ""}
-    </div>"""
-
 @st.fragment
 def render_player_load():
     roster   = load_roster()
@@ -1006,6 +1468,72 @@ def render_player_load():
                 st.plotly_chart(fig_ec, use_container_width=True, key=f"ec_line_{sel}")
 
     # ════════════════════════════════════════════════════════════════════════
+    # EVENING AU TREND  (player vs team average)
+    # ════════════════════════════════════════════════════════════════════════
+    st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+    st.divider()
+    st.markdown("### Evening AU Trend vs Team Average")
+    st.caption("AU = RPE × Session Duration · sourced from evening check-ins · last 28 days")
+
+    if not evening.empty and "evening_au" in evening.columns:
+        ev_all_28 = evening[
+            (evening["timestamp"] >= month_ago) &
+            (evening["session_duration_hours"].notna()) &
+            (evening["session_duration_hours"] > 0)
+        ].copy()
+
+        if ev_all_28.empty:
+            st.info("No AU data yet — players need to submit session duration in the evening check-in.")
+        else:
+            # Team daily avg AU
+            team_daily_au = ev_all_28.groupby("date")["evening_au"].mean().reset_index()
+            team_daily_au.columns = ["date", "team_avg_au"]
+            team_daily_au["date_str"] = team_daily_au["date"].astype(str)
+
+            # Player daily AU
+            player_daily_au = pd.DataFrame()
+            if not pec.empty and "evening_au" in pec.columns:
+                pec_28 = pec[
+                    (pec["timestamp"] >= month_ago) &
+                    (pec["session_duration_hours"].notna()) &
+                    (pec["session_duration_hours"] > 0)
+                ]
+                if not pec_28.empty:
+                    player_daily_au = pec_28.groupby("date")["evening_au"].sum().reset_index()
+                    player_daily_au.columns = ["date", "player_au"]
+                    player_daily_au["date_str"] = player_daily_au["date"].astype(str)
+
+            fig_au = go.Figure()
+            fig_au.add_trace(go.Scatter(
+                x=team_daily_au["date_str"],
+                y=team_daily_au["team_avg_au"].round(2),
+                name="Team Avg AU",
+                mode="lines",
+                line=dict(color="#6b7a90", width=2, dash="dot"),
+                hovertemplate="<b>%{x}</b><br>Team avg: %{y:.1f} AU<extra></extra>",
+            ))
+            if not player_daily_au.empty:
+                fig_au.add_trace(go.Bar(
+                    x=player_daily_au["date_str"],
+                    y=player_daily_au["player_au"].round(2),
+                    name=f"{sel} AU",
+                    marker_color="#00c2ff",
+                    opacity=0.75,
+                    hovertemplate="<b>%{x}</b><br>" + sel + ": %{y:.1f} AU<extra></extra>",
+                ))
+            fig_au.update_layout(
+                **{**DARK_LAYOUT, "margin": dict(t=16, b=24, l=8, r=8)},
+                height=240, barmode="overlay",
+                title=dict(text=f"{sel} — Daily AU vs Team Avg (28d)", font=dict(size=13), x=0),
+                xaxis=dict(gridcolor="#1f2530"),
+                yaxis=dict(gridcolor="#1f2530", title="AU (RPE × hrs)"),
+                legend=dict(orientation="h", y=-0.25),
+            )
+            st.plotly_chart(fig_au, use_container_width=True, key=f"au_trend_{sel}")
+    else:
+        st.info("No AU data yet — players need to submit session duration in the evening check-in.")
+
+    # ════════════════════════════════════════════════════════════════════════
     # BATTING LOAD SECTION  (all players, sourced from evening check-ins)
     # ════════════════════════════════════════════════════════════════════════
     st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
@@ -1248,7 +1776,9 @@ def render_squad():
             sleep    = float(last.get("sleep_quality", 3) or 3)
             energy   = float(last.get("energy_level",  3) or 3)
             soreness = float(last.get("body_soreness", 3) or 3)
-            readiness_sc = int(sleep + energy + (6 - soreness))
+            stress   = float(last.get("stress",        3) or 3)
+            mood     = float(last.get("mood",          3) or 3)
+            readiness_sc = int(sleep + energy + (6 - soreness) + (6 - stress) + mood)
             band, band_color = readiness_band(readiness_sc)
 
             # Readiness score pill
@@ -1258,7 +1788,7 @@ def render_squad():
                 Readiness Score
               </div>
               <div style="font-size:52px;font-weight:800;color:{band_color};line-height:1;">{readiness_sc}</div>
-              <div style="font-size:13px;color:{band_color};margin-top:2px;">{band} &nbsp;/ 15</div>
+              <div style="font-size:13px;color:{band_color};margin-top:2px;">{band} &nbsp;/ 25</div>
             </div>
             """, unsafe_allow_html=True)
 
@@ -1321,7 +1851,9 @@ def render_squad():
             trend["readiness"] = (
                 trend["sleep_quality"].fillna(3) +
                 trend["energy_level"].fillna(3) +
-                (6 - trend["body_soreness"].fillna(3))
+                (6 - trend["body_soreness"].fillna(3)) +
+                (6 - trend["stress"].fillna(3)) +
+                trend["mood"].fillna(3)
             )
             trend["date_str"] = trend["date"].astype(str)
             fig_trend = go.Figure()
@@ -1352,9 +1884,9 @@ def render_squad():
             # Readiness score trend
             st.markdown("#### Readiness Score (last 7 days)")
             fig_rs = go.Figure()
-            fig_rs.add_hrect(y0=13, y1=15, fillcolor="#22c55e", opacity=0.07, line_width=0)
-            fig_rs.add_hrect(y0=10, y1=12, fillcolor="#f59e0b", opacity=0.07, line_width=0)
-            fig_rs.add_hrect(y0=0,  y1=9,  fillcolor="#ef4444", opacity=0.07, line_width=0)
+            fig_rs.add_hrect(y0=18, y1=25, fillcolor="#22c55e", opacity=0.07, line_width=0)
+            fig_rs.add_hrect(y0=14, y1=17, fillcolor="#f59e0b", opacity=0.07, line_width=0)
+            fig_rs.add_hrect(y0=0,  y1=13, fillcolor="#ef4444", opacity=0.07, line_width=0)
             fig_rs.add_trace(go.Scatter(
                 x=trend["date_str"], y=trend["readiness"],
                 line=dict(color="#00c2ff", width=2),
@@ -1364,9 +1896,9 @@ def render_squad():
             fig_rs.update_layout(
                 **{**DARK_LAYOUT, "margin": dict(t=16, b=24, l=8, r=8)},
                 height=200,
-                yaxis=dict(range=[0, 16], gridcolor="#1f2530",
-                           tickvals=[0, 10, 13, 15],
-                           ticktext=["0","10 (Yellow)","13 (Green)","15"]),
+                yaxis=dict(range=[0, 26], gridcolor="#1f2530",
+                           tickvals=[0, 14, 18, 25],
+                           ticktext=["0","14 (Monitor)","18 (Normal)","25"]),
                 xaxis=dict(gridcolor="#1f2530"),
                 showlegend=False,
             )
