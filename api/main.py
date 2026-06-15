@@ -152,16 +152,18 @@ async def replace_roster(records: list):
         await db.commit()
 
 
-async def _roster_players() -> tuple[list, list]:
-    players, fast_bowlers = [], []
+async def _roster_players() -> tuple[list, list, list]:
+    players, fast_bowlers, allrounders = [], [], []
     try:
         for r in await fetch_all("roster"):
             players.append({"name": r.get("name") or "", "role": r.get("role") or ""})
             if str(r.get("is_fast_bowler")).strip().lower() in ("true", "1", "yes"):
                 fast_bowlers.append(r.get("name"))
+            if "allrounder" in str(r.get("role") or "").lower().replace("-", "").replace(" ", ""):
+                allrounders.append(r.get("name"))
     except Exception:
         pass
-    return players, fast_bowlers
+    return players, fast_bowlers, allrounders
 
 
 async def init_db():
@@ -273,11 +275,12 @@ async def checkin_form(request: Request):
 
 @app.get("/checkin/{player_name}", response_class=HTMLResponse)
 async def checkin_player(request: Request, player_name: str):
-    players, fast_bowlers = await _roster_players()
+    players, fast_bowlers, allrounders = await _roster_players()
     return templates.TemplateResponse("checkin.html", {
         "request": request,
         "players": players,
         "fast_bowlers": fast_bowlers,
+        "allrounders": allrounders,
         "preselected_player": player_name,
     })
 

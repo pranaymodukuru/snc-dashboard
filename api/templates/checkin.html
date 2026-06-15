@@ -496,9 +496,10 @@ document.getElementById('top-date').textContent = new Date().toLocaleDateString(
 
 const PLAYERS      = {{ players | tojson }};
 const FAST_BOWLERS = new Set({{ fast_bowlers | tojson }});
+const ALLROUNDERS  = new Set({{ allrounders | tojson }});
 const PRESELECTED  = {{ preselected_player | tojson }};
 
-let selectedPlayer = null; // { name, isFastBowler }
+let selectedPlayer = null; // { name, isFastBowler, canBowl }
 let sessionType    = null; // 'morning' | 'evening'
 
 // Morning state
@@ -538,15 +539,15 @@ function renderPlayerGrid() {
 renderPlayerGrid();
 
 function selectPlayer(name) {
-  const found = PLAYERS.find(p => p.name === name);
   const isFastBowler = FAST_BOWLERS.has(name);
-  selectedPlayer = { name, isFastBowler };
+  const canBowl = isFastBowler || ALLROUNDERS.has(name);
+  selectedPlayer = { name, isFastBowler, canBowl };
   document.getElementById('selected-name-type').textContent    = name;
   document.getElementById('selected-name-morning').textContent = name;
   document.getElementById('selected-name-evening').textContent = name;
 
-  // Show/hide fast bowler section on evening form
-  document.getElementById('evening-bowler-section').style.display = isFastBowler ? 'block' : 'none';
+  // Show/hide bowling section for fast bowlers and allrounders
+  document.getElementById('evening-bowler-section').style.display = canBowl ? 'block' : 'none';
 
   showScreen('screen-type');
 }
@@ -845,7 +846,7 @@ function selectRadio(group, btn) {
 async function submitEvening() {
   const btn = document.getElementById('evening-submit-btn');
 
-  if (selectedPlayer.isFastBowler && didBowl === null) {
+  if (selectedPlayer.canBowl && didBowl === null) {
     alert('Please indicate whether you bowled today.');
     return;
   }
@@ -903,7 +904,7 @@ function showEveningSuccess(payload) {
     ['⏱ Duration', `${payload.session_duration_hours.toFixed(1)}h`, 'var(--text)'],
     ['⚡ Session AU', au, 'var(--yellow)'],
   ];
-  if (selectedPlayer.isFastBowler) {
+  if (selectedPlayer.canBowl) {
     rows.push(['🏏 Bowled today', payload.did_bowl ? 'Yes' : 'No', 'var(--text)']);
     if (payload.did_bowl) {
       rows.push(['📊 Bowl Volume',    payload.bowling_volume,    'var(--text)']);
