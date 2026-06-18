@@ -355,6 +355,25 @@ async def put_roster(records: list[dict]):
     return {"status": "ok"}
 
 
+@app.patch("/data/{table}/{row_id}")
+async def patch_row(table: str, row_id: int, updates: dict):
+    if table not in TABLES:
+        raise HTTPException(status_code=404, detail=f"Unknown table: {table}")
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    allowed = set(TABLES[table])
+    bad = set(updates) - allowed
+    if bad:
+        raise HTTPException(status_code=400, detail=f"Unknown fields: {bad}")
+    set_clause = ", ".join(f'"{k}" = ?' for k in updates)
+    values = list(updates.values()) + [row_id]
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA busy_timeout=5000;")
+        await db.execute(f'UPDATE "{table}" SET {set_clause} WHERE rowid = ?', values)
+        await db.commit()
+    return {"status": "ok"}
+
+
 @app.delete("/data/{table}/{row_id}")
 async def delete_row(table: str, row_id: int):
     if table not in TABLES:

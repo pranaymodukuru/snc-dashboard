@@ -1018,7 +1018,128 @@ with tab_overview:
     render_overview()
 
 # ════════════════════════════════════════════════════════════════════════════
-# TAB 2 — WELLNESS
+# RAW DATA — shared helpers & dialogs (module-level so @st.dialog works)
+# ════════════════════════════════════════════════════════════════════════════
+
+def _patch_row(table: str, row_id: int, updates: dict) -> bool:
+    try:
+        r = requests.patch(f"{API_URL}/data/{table}/{row_id}", json=updates, timeout=5)
+        r.raise_for_status()
+        st.cache_data.clear()
+        return True
+    except Exception as e:
+        st.error(f"Update failed: {e}")
+        return False
+
+def _ts_with_new_date(orig_ts_str: str, new_date) -> str:
+    orig = pd.to_datetime(orig_ts_str)
+    return f"{new_date.isoformat()}T{orig.time().isoformat()}"
+
+def _safe_int(val, default=3):
+    try: return int(val) if pd.notna(val) else default
+    except: return default
+
+def _safe_float(val, default=0.0):
+    try: return float(val) if pd.notna(val) else default
+    except: return default
+
+def _safe_str(val):
+    return str(val) if pd.notna(val) and val is not None else ""
+
+
+@st.dialog("Edit Morning Check-in", width="large")
+def _edit_wellness_dialog(row):
+    with st.form("dlg_wellness"):
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            orig_ts    = pd.to_datetime(row["timestamp"])
+            new_date   = st.date_input("Date", value=orig_ts.date())
+            new_player = st.text_input("Player", value=_safe_str(row.get("player_name")))
+            avail_opts = ["Available", "Limited", "Unavailable"]
+            cur_avail  = _safe_str(row.get("availability_status"))
+            avail_idx  = avail_opts.index(cur_avail) if cur_avail in avail_opts else 0
+            new_avail  = st.selectbox("Availability", avail_opts, index=avail_idx)
+        with c2:
+            new_sleep_q  = st.number_input("Sleep Quality (1–5)", 1, 5, _safe_int(row.get("sleep_quality")))
+            new_energy   = st.number_input("Energy (1–5)", 1, 5, _safe_int(row.get("energy_level")))
+            new_soreness = st.number_input("Soreness (1–5)", 1, 5, _safe_int(row.get("body_soreness")))
+        with c3:
+            new_mood    = st.number_input("Mood (1–5)", 1, 5, _safe_int(row.get("mood")))
+            new_stress  = st.number_input("Stress (1–5)", 1, 5, _safe_int(row.get("stress")))
+            new_sleep_h = st.number_input("Sleep Hours", 0.0, 24.0, _safe_float(row.get("sleep_hours")), step=0.5)
+        with c4:
+            new_sick      = st.checkbox("Sick", value=bool(row.get("is_sick")))
+            new_tightness = st.text_input("Tightness Locations", value=_safe_str(row.get("tightness_locations")))
+            new_severity  = st.text_input("Complaint Severity", value=_safe_str(row.get("complaint_severity")))
+            new_notes     = st.text_input("Notes", value=_safe_str(row.get("notes")))
+        if st.form_submit_button("Save changes", type="primary"):
+            updates = {
+                "timestamp": _ts_with_new_date(row["timestamp"], new_date),
+                "player_name": new_player,
+                "sleep_quality": new_sleep_q, "energy_level": new_energy,
+                "body_soreness": new_soreness, "mood": new_mood, "stress": new_stress,
+                "sleep_hours": new_sleep_h, "is_sick": int(new_sick),
+                "tightness_locations": new_tightness, "complaint_severity": new_severity,
+                "availability_status": new_avail, "notes": new_notes,
+            }
+            if _patch_row("wellness", int(row["id"]), updates):
+                st.rerun()
+
+
+@st.dialog("Edit Evening Check-in", width="large")
+def _edit_evening_dialog(row):
+    with st.form("dlg_evening"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            orig_ts    = pd.to_datetime(row["timestamp"])
+            new_date   = st.date_input("Date", value=orig_ts.date())
+            new_player = st.text_input("Player", value=_safe_str(row.get("player_name")))
+            new_rpe    = st.number_input("Session RPE (1–10)", 1, 10, _safe_int(row.get("session_rpe"), 5))
+        with c2:
+            new_dur      = st.number_input("Duration (hrs)", 0.0, 12.0, _safe_float(row.get("session_duration_hours")), step=0.25)
+            new_did_bowl = st.checkbox("Did Bowl", value=bool(row.get("did_bowl")))
+            new_bowl_vol = st.text_input("Bowling Volume", value=_safe_str(row.get("bowling_volume")))
+        with c3:
+            new_bowl_int = st.text_input("Bowling Intensity", value=_safe_str(row.get("bowling_intensity")))
+            new_did_bat  = st.checkbox("Did Bat", value=bool(row.get("did_bat")))
+            new_balls    = st.text_input("Balls Faced", value=_safe_str(row.get("balls_faced")))
+        if st.form_submit_button("Save changes", type="primary"):
+            updates = {
+                "timestamp": _ts_with_new_date(row["timestamp"], new_date),
+                "player_name": new_player,
+                "session_rpe": new_rpe, "session_duration_hours": new_dur,
+                "did_bowl": int(new_did_bowl), "bowling_volume": new_bowl_vol,
+                "bowling_intensity": new_bowl_int,
+                "did_bat": int(new_did_bat), "balls_faced": new_balls,
+            }
+            if _patch_row("evening", int(row["id"]), updates):
+                st.rerun()
+
+
+@st.dialog("Edit Session Load", width="large")
+def _edit_sessions_dialog(row):
+    with st.form("dlg_sessions"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            orig_ts    = pd.to_datetime(row["timestamp"])
+            new_date   = st.date_input("Date", value=orig_ts.date())
+            new_player = st.text_input("Player", value=_safe_str(row.get("player_name")))
+        with c2:
+            new_type = st.text_input("Session Type", value=_safe_str(row.get("session_type")))
+            new_dur  = st.number_input("Duration (min)", 0, 600, _safe_int(row.get("duration_mins"), 60))
+        with c3:
+            new_rpe   = st.number_input("RPE (1–10)", 1, 10, _safe_int(row.get("rpe"), 5))
+            new_notes = st.text_input("Notes", value=_safe_str(row.get("notes")))
+        if st.form_submit_button("Save changes", type="primary"):
+            updates = {
+                "timestamp": _ts_with_new_date(row["timestamp"], new_date),
+                "player_name": new_player, "session_type": new_type,
+                "duration_mins": new_dur, "rpe": new_rpe, "notes": new_notes,
+            }
+            if _patch_row("sessions", int(row["id"]), updates):
+                st.rerun()
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # RAW DATA TAB
 # ════════════════════════════════════════════════════════════════════════════
@@ -1062,12 +1183,13 @@ def render_raw_data():
             df_w_full = _date_filter(wellness, "wellness")
             keep = ["date","player_name","sleep_quality","energy_level","body_soreness",
                     "mood","stress","sleep_hours","is_sick",
-                    "tightness_locations","availability_status","notes"]
+                    "tightness_locations","complaint_severity","availability_status","notes"]
             df_w = df_w_full[[c for c in keep if c in df_w_full.columns]].rename(columns={
                 "player_name":"Player","sleep_quality":"Sleep","energy_level":"Energy",
                 "body_soreness":"Soreness","mood":"Mood","stress":"Stress",
                 "sleep_hours":"Sleep Hrs","is_sick":"Sick",
-                "tightness_locations":"Tightness","availability_status":"Availability",
+                "tightness_locations":"Tightness","complaint_severity":"Complaint Severity",
+                "availability_status":"Availability",
             })
 
             def _bg(val, inv=False):
@@ -1089,11 +1211,15 @@ def render_raw_data():
             sel_w = st.dataframe(styled, use_container_width=True, height=380,
                                  selection_mode="multi-row", on_select="rerun",
                                  key="raw_wellness")
-            c1, c2 = st.columns([1, 5])
+            sel_idx = sel_w.selection.rows
+            c1, c2, c3 = st.columns([2, 2, 6])
             with c1:
                 _export_btn(df_w, "morning_checkins")
             with c2:
-                sel_idx = sel_w.selection.rows
+                if len(sel_idx) == 1:
+                    if st.button("Edit selected", key="edit_wellness"):
+                        _edit_wellness_dialog(df_w_full.iloc[sel_idx[0]])
+            with c3:
                 if sel_idx:
                     if st.button(f"Delete {len(sel_idx)} selected", type="primary",
                                  key="del_wellness"):
@@ -1107,20 +1233,24 @@ def render_raw_data():
             st.info("No evening check-in data yet.")
         else:
             df_e_full = _date_filter(evening, "evening")
-            keep_e = ["date","player_name","session_rpe","did_bowl","bowling_volume","bowling_intensity","did_bat","balls_faced"]
+            keep_e = ["date","player_name","session_rpe","session_duration_hours","did_bowl","bowling_volume","bowling_intensity","did_bat","balls_faced"]
             df_e_display = df_e_full[[c for c in keep_e if c in df_e_full.columns]].rename(columns={
-                "player_name":"Player","session_rpe":"RPE","did_bowl":"Bowled",
-                "bowling_volume":"Bowl Vol","bowling_intensity":"Bowl Int",
+                "player_name":"Player","session_rpe":"RPE","session_duration_hours":"Duration (hrs)",
+                "did_bowl":"Bowled","bowling_volume":"Bowl Vol","bowling_intensity":"Bowl Int",
                 "did_bat":"Batted","balls_faced":"Balls Faced",
             })
             sel_e = st.dataframe(df_e_display, use_container_width=True, height=320,
                                  selection_mode="multi-row", on_select="rerun",
                                  key="raw_evening")
-            c1, c2 = st.columns([1, 5])
+            sel_idx = sel_e.selection.rows
+            c1, c2, c3 = st.columns([2, 2, 6])
             with c1:
                 _export_btn(df_e_full, "evening_checkins")
             with c2:
-                sel_idx = sel_e.selection.rows
+                if len(sel_idx) == 1:
+                    if st.button("Edit selected", key="edit_evening"):
+                        _edit_evening_dialog(df_e_full.iloc[sel_idx[0]])
+            with c3:
                 if sel_idx:
                     if st.button(f"Delete {len(sel_idx)} selected", type="primary",
                                  key="del_evening"):
@@ -1142,11 +1272,15 @@ def render_raw_data():
             sel_s = st.dataframe(df_s_display, use_container_width=True, height=320,
                                  selection_mode="multi-row", on_select="rerun",
                                  key="raw_sessions")
-            c1, c2 = st.columns([1, 5])
+            sel_idx = sel_s.selection.rows
+            c1, c2, c3 = st.columns([2, 2, 6])
             with c1:
                 _export_btn(df_s_full, "sessions")
             with c2:
-                sel_idx = sel_s.selection.rows
+                if len(sel_idx) == 1:
+                    if st.button("Edit selected", key="edit_sessions"):
+                        _edit_sessions_dialog(df_s_full.iloc[sel_idx[0]])
+            with c3:
                 if sel_idx:
                     if st.button(f"Delete {len(sel_idx)} selected", type="primary",
                                  key="del_sessions"):
@@ -1174,11 +1308,11 @@ def render_raw_data():
                 sel_b = st.dataframe(df_bowl_display, use_container_width=True, height=320,
                                      selection_mode="multi-row", on_select="rerun",
                                      key="raw_bowling")
+                sel_idx = sel_b.selection.rows
                 c1, c2 = st.columns([1, 5])
                 with c1:
                     _export_btn(df_bowl_full, "bowling_checkins")
                 with c2:
-                    sel_idx = sel_b.selection.rows
                     if sel_idx:
                         if st.button(f"Delete {len(sel_idx)} selected", type="primary",
                                      key="del_bowling"):
@@ -1195,11 +1329,11 @@ def render_raw_data():
             sel_r = st.dataframe(roster_display, use_container_width=True, height=320,
                                  selection_mode="multi-row", on_select="rerun",
                                  key="raw_roster")
+            sel_idx = sel_r.selection.rows
             c1, c2 = st.columns([1, 5])
             with c1:
                 _export_btn(roster_display, "roster")
             with c2:
-                sel_idx = sel_r.selection.rows
                 if sel_idx:
                     if st.button(f"Delete {len(sel_idx)} selected", type="primary",
                                  key="del_roster"):
