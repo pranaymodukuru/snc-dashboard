@@ -62,7 +62,7 @@ def require_auth():
       <img src="{PUBLIC_URL}/static/logo.avif" alt="Anurag Nalgonda Knights"
            style="height:90px; width:auto; margin-bottom:16px; display:block; margin-left:auto; margin-right:auto;">
       <div style="font-size: 22px; font-weight: 800; letter-spacing: 2px; color: #e8edf5; margin-bottom: 6px;">
-        ANURAG NALGONDA <span style="color: #00c2ff;">KNIGHTS</span>
+        ANURAG NALGONDA <span style="color: #E8302A;">KNIGHTS</span>
       </div>
       <div style="color: #6b7a90; font-size: 11px; letter-spacing: 3px; text-transform: uppercase;">
         S&amp;C DASHBOARD
@@ -100,7 +100,7 @@ EVENING_COLS  = ["timestamp","player_name","session_rpe","session_duration_hours
 
 RPE_LABELS = {
     (1, 2):  ("Recovery",  "#22c55e"),
-    (3, 4):  ("Easy",      "#00c2ff"),
+    (3, 4):  ("Easy",      "#E8302A"),
     (5, 6):  ("Moderate",  "#f59e0b"),
     (7, 8):  ("Hard",      "#ef4444"),
     (9, 9):  ("Very Hard", "#ef4444"),
@@ -109,14 +109,14 @@ RPE_LABELS = {
 
 WELLNESS_INTERP = [
     (4.5, 5.0, "Excellent Readiness", "#22c55e"),
-    (3.5, 4.4, "Normal",              "#00c2ff"),
+    (3.5, 4.4, "Normal",              "#E8302A"),
     (2.5, 3.4, "Monitor",             "#f59e0b"),
     (0.0, 2.4, "High Attention",      "#ef4444"),
 ]
 
 STATUS_COLORS = {
     "Full Training": "#22c55e",
-    "Modified":      "#00c2ff",
+    "Modified":      "#E8302A",
     "Recovery":      "#f59e0b",
     "Rehab":         "#f97316",
     "Unavailable":   "#ef4444",
@@ -210,7 +210,7 @@ with c_title:
            style="height:42px; width:auto;">
       <div>
         <div style="font-size: 16px; font-weight: 800; letter-spacing: 2px; color: #e8edf5; line-height: 1.2;">
-          ANURAG NALGONDA <span style="color: #00c2ff;">KNIGHTS</span>
+          ANURAG NALGONDA <span style="color: #E8302A;">KNIGHTS</span>
         </div>
         <div style="font-size: 10px; color: #6b7a90; letter-spacing: 2px; text-transform: uppercase; margin-top: 2px;">S&amp;C Dashboard</div>
       </div>
@@ -259,7 +259,7 @@ def readiness_band(score: int) -> tuple[str, str]:
 
 def _rpe_color(rpe: float) -> str:
     if rpe <= 2:  return "#22c55e"
-    if rpe <= 4:  return "#00c2ff"
+    if rpe <= 4:  return "#E8302A"
     if rpe <= 6:  return "#f59e0b"
     if rpe <= 8:  return "#ef4444"
     return "#ff4444"
@@ -681,7 +681,7 @@ def render_overview():
         mood     = _avg("mood")
         stress   = _avg("stress")
         cards = [
-            ("🌙", _fmt(sleep_h, "h"), "Sleep", "#00c2ff"),
+            ("🌙", _fmt(sleep_h, "h"), "Sleep", "#E8302A"),
             ("⚡", _fmt(energy) + ("/5" if energy is not None else ""), "Energy", "#22c55e"),
             ("🔥", _fmt(soreness) + ("/5" if soreness is not None else ""), "Soreness", "#f59e0b"),
             ("🙂", _fmt(mood) + ("/5" if mood is not None else ""), "Mood", "#facc15"),
@@ -970,7 +970,7 @@ def render_overview():
                 if not per_player.empty:
                     lp = per_player.copy(); lp["wpct"] = lp.apply(wellness_pct, axis=1)
                     flagged_players = lp.sort_values("wpct").head(3)["player_name"].tolist()
-                palette = ["#ef4444", "#f59e0b", "#00c2ff"]
+                palette = ["#ef4444", "#f59e0b", "#E8302A"]
                 for i, pl in enumerate(flagged_players):
                     pld = daily[daily["player_name"] == pl]
                     if not pld.empty:
@@ -1014,9 +1014,9 @@ def render_overview():
     st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
     rec = _sc_recommendation(per_player, cards, au_overload)
     st.markdown(
-        f"<div style='background:rgba(0,194,255,0.06);border:1px solid rgba(0,194,255,0.25);"
+        f"<div style='background:rgba(232,48,42,0.06);border:1px solid rgba(232,48,42,0.25);"
         f"border-radius:10px;padding:14px 18px;'>"
-        f"<div style='color:#00c2ff;font-weight:700;font-size:13px;margin-bottom:6px;'>"
+        f"<div style='color:#E8302A;font-weight:700;font-size:13px;margin-bottom:6px;'>"
         f"🛡 S&amp;C RECOMMENDATION</div>"
         f"<div style='font-size:13px;color:#c3cedd;line-height:1.6;'>{rec}</div></div>",
         unsafe_allow_html=True)
@@ -1534,7 +1534,7 @@ def render_player_load():
         with col_type:
             type_counts = ps["session_type"].value_counts()
             type_colors = {
-                "Training": "#00c2ff", "Match": "#f59e0b",
+                "Training": "#E8302A", "Match": "#f59e0b",
                 "Gym": "#22c55e", "Recovery": "#6b7a90", "Rehab": "#ef4444",
             }
             fig_type = go.Figure(go.Pie(
@@ -1659,7 +1659,7 @@ def render_player_load():
                     x=player_daily_au["date_str"],
                     y=player_daily_au["player_au"].round(2),
                     name=f"{sel} AU",
-                    marker_color="#00c2ff",
+                    marker_color="#E8302A",
                     opacity=0.75,
                     hovertemplate="<b>%{x}</b><br>" + sel + ": %{y:.1f} AU<extra></extra>",
                 ))
@@ -1690,7 +1690,7 @@ def render_player_load():
         st.info(f"No batting data for {sel} yet.")
     else:
         BALLS_ORDER = {"<24": 1, "24-36": 2, "36-48": 3, "48-60": 4, "60+": 5}
-        BALLS_COLOR = {"<24": "#22c55e", "24-36": "#00c2ff", "36-48": "#f59e0b", "48-60": "#ef4444", "60+": "#ff4444"}
+        BALLS_COLOR = {"<24": "#22c55e", "24-36": "#E8302A", "36-48": "#f59e0b", "48-60": "#ef4444", "60+": "#ff4444"}
 
         pec_bat_week  = pec_bat[pec_bat["timestamp"] >= week_ago]
         pec_bat_month = pec_bat[pec_bat["timestamp"] >= month_ago]
@@ -2000,7 +2000,7 @@ def render_squad():
             trend["date_str"] = trend["date"].astype(str)
             fig_trend = go.Figure()
             metrics = [
-                ("sleep_quality", "Sleep",    "#00c2ff"),
+                ("sleep_quality", "Sleep",    "#E8302A"),
                 ("energy_level",  "Energy",   "#22c55e"),
                 ("body_soreness", "Soreness", "#f59e0b"),
                 ("mood",          "Mood",      "#a78bfa"),
@@ -2031,7 +2031,7 @@ def render_squad():
             fig_rs.add_hrect(y0=0,  y1=13, fillcolor="#ef4444", opacity=0.07, line_width=0)
             fig_rs.add_trace(go.Scatter(
                 x=trend["date_str"], y=trend["readiness"],
-                line=dict(color="#00c2ff", width=2),
+                line=dict(color="#E8302A", width=2),
                 mode="lines+markers", marker=dict(size=7),
                 name="Readiness",
             ))

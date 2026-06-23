@@ -260,7 +260,7 @@ async def checkin_form(request: Request):
          min-height:100vh; margin:0; text-align:center; padding:24px; }
   .logo { display:flex; flex-direction:column; align-items:center; gap:12px; margin-bottom:48px; }
   .logo-name { font-family:'Bebas Neue',sans-serif; font-size:24px; letter-spacing:3px; }
-  .logo-name span { color:#00c2ff; }
+  .logo-name span { color:#E8302A; }
   .icon { font-size:56px; margin-bottom:24px; }
   h1 { font-family:'Bebas Neue',sans-serif; font-size:32px; letter-spacing:2px; margin:0 0 12px; }
   p { color:#6b7a90; font-size:14px; line-height:1.6; max-width:320px; }

@@ -13,7 +13,7 @@
     --border:  #1f2530;
     --text:    #e8edf5;
     --muted:   #6b7a90;
-    --accent:  #00c2ff;
+    --accent:  #E8302A;
     --green:   #22c55e;
     --yellow:  #f59e0b;
     --red:     #ef4444;
@@ -49,7 +49,7 @@
     padding: 14px 12px; text-align: left; cursor: pointer; transition: all 0.15s; color: var(--text);
   }
   .player-btn:active { transform: scale(0.97); }
-  .player-btn:hover { border-color: var(--accent); background: rgba(0,194,255,0.05); }
+  .player-btn:hover { border-color: var(--accent); background: rgba(232,48,42,0.05); }
   .player-btn .pname { font-size: 14px; font-weight: 500; }
   .player-btn .prole { font-size: 11px; color: var(--muted); margin-top: 2px; }
   .grid-message {
@@ -66,7 +66,7 @@
   }
   .session-card:hover { transform: translateY(-2px); }
   .session-card.morning-card:hover { border-color: var(--yellow); background: rgba(245,158,11,0.05); }
-  .session-card.evening-card:hover { border-color: var(--accent); background: rgba(0,194,255,0.05); }
+  .session-card.evening-card:hover { border-color: var(--accent); background: rgba(232,48,42,0.05); }
   .session-card:active { transform: scale(0.97); }
   .session-icon { font-size: 36px; }
   .session-title { font-family: var(--font-display); font-size: 22px; letter-spacing: 2px; line-height: 1.2; }
@@ -81,7 +81,7 @@
   }
   .back-btn:hover { color: var(--text); }
   .player-tag {
-    background: rgba(0,194,255,0.1); border: 1px solid rgba(0,194,255,0.2);
+    background: rgba(232,48,42,0.1); border: 1px solid rgba(232,48,42,0.2);
     color: var(--accent); padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 500;
   }
   .session-badge {
@@ -89,7 +89,7 @@
     letter-spacing: 0.5px; text-transform: uppercase;
   }
   .badge-morning { background: rgba(245,158,11,0.12); color: var(--yellow); border: 1px solid rgba(245,158,11,0.3); }
-  .badge-evening { background: rgba(0,194,255,0.12); color: var(--accent); border: 1px solid rgba(0,194,255,0.3); }
+  .badge-evening { background: rgba(232,48,42,0.12); color: var(--accent); border: 1px solid rgba(232,48,42,0.3); }
 
   /* ── Questions / sliders ── */
   .question { margin-bottom: 28px; }
@@ -140,7 +140,7 @@
   }
   .chip:active { transform: scale(0.95); }
   .chip.selected {
-    background: rgba(0,194,255,0.1); border-color: var(--accent); color: var(--accent);
+    background: rgba(232,48,42,0.1); border-color: var(--accent); color: var(--accent);
   }
   .chip.chip-none.selected {
     background: rgba(34,197,94,0.1); border-color: var(--green); color: var(--green);
@@ -154,7 +154,7 @@
     font-family: var(--font-body);
   }
   .avail-card:active { transform: scale(0.99); }
-  .avail-card.selected { border-color: var(--accent); background: rgba(0,194,255,0.05); }
+  .avail-card.selected { border-color: var(--accent); background: rgba(232,48,42,0.05); }
   .avail-card.selected .avail-dot { background: var(--accent); }
   .avail-header { display: flex; align-items: center; gap: 10px; }
   .avail-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border); flex-shrink: 0; transition: background 0.15s; }
@@ -178,7 +178,7 @@
     padding: 10px 16px; cursor: pointer; font-size: 13px; color: var(--muted);
     font-family: var(--font-body); transition: all 0.15s; text-align: left;
   }
-  .radio-opt.selected { border-color: var(--accent); background: rgba(0,194,255,0.08); color: var(--text); }
+  .radio-opt.selected { border-color: var(--accent); background: rgba(232,48,42,0.08); color: var(--text); }
 
   /* ── Notes ── */
   .notes-input {
