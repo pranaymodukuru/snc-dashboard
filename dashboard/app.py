@@ -12,7 +12,7 @@ import requests
 
 # ── Page config ─────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Nalgonda Knights — Dashboard",
+    page_title="Anurag Nalgonda Knights — Dashboard",
     page_icon="🏏",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -57,12 +57,14 @@ st.markdown("""
 def require_auth():
     if st.session_state.get("authenticated"):
         return
-    st.markdown("""
+    st.markdown(f"""
     <div style="text-align:center; padding: 80px 0 24px;">
-      <div style="font-size: 42px; font-weight: 800; letter-spacing: 4px; color: #e8edf5;">
-        NALGONDA <span style="color: #00c2ff;">KNIGHTS</span>
+      <img src="{PUBLIC_URL}/static/logo.avif" alt="Anurag Nalgonda Knights"
+           style="height:90px; width:auto; margin-bottom:16px; display:block; margin-left:auto; margin-right:auto;">
+      <div style="font-size: 22px; font-weight: 800; letter-spacing: 2px; color: #e8edf5; margin-bottom: 6px;">
+        ANURAG NALGONDA <span style="color: #00c2ff;">KNIGHTS</span>
       </div>
-      <div style="color: #6b7a90; font-size: 12px; letter-spacing: 3px; text-transform: uppercase; margin-top: 6px;">
+      <div style="color: #6b7a90; font-size: 11px; letter-spacing: 3px; text-transform: uppercase;">
         S&amp;C DASHBOARD
       </div>
     </div>
@@ -202,10 +204,16 @@ def fast_bowlers(roster: pd.DataFrame) -> list:
 # ── Header ───────────────────────────────────────────────────────────────────
 c_title, c_logout = st.columns([5, 1])
 with c_title:
-    st.markdown("""
-    <div style="font-size: 26px; font-weight: 800; letter-spacing: 3px; line-height: 1.2;">
-      NALGONDA <span style="color: #00c2ff;">KNIGHTS</span>
-      <span style="font-size: 12px; color: #6b7a90; font-weight: 400; letter-spacing: 2px;"> — S&amp;C DASHBOARD</span>
+    st.markdown(f"""
+    <div style="display:flex; align-items:center; gap:12px;">
+      <img src="{PUBLIC_URL}/static/logo.avif" alt="Anurag Nalgonda Knights"
+           style="height:42px; width:auto;">
+      <div>
+        <div style="font-size: 16px; font-weight: 800; letter-spacing: 2px; color: #e8edf5; line-height: 1.2;">
+          ANURAG NALGONDA <span style="color: #00c2ff;">KNIGHTS</span>
+        </div>
+        <div style="font-size: 10px; color: #6b7a90; letter-spacing: 2px; text-transform: uppercase; margin-top: 2px;">S&amp;C Dashboard</div>
+      </div>
     </div>
     """, unsafe_allow_html=True)
 with c_logout:

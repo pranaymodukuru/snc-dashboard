@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Knights — Daily Check-in</title>
+<title>Anurag Nalgonda Knights — Daily Check-in</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -30,8 +30,10 @@
     padding: 14px 20px; display: flex; align-items: center; justify-content: space-between;
     position: sticky; top: 0; z-index: 10;
   }
-  .top-logo { font-family: var(--font-display); font-size: 20px; letter-spacing: 3px; }
-  .top-logo span { color: var(--accent); }
+  .top-logo { display: flex; align-items: center; gap: 10px; }
+  .top-logo img { height: 28px; width: auto; display: block; }
+  .top-logo-name { font-family: var(--font-display); font-size: 16px; letter-spacing: 2px; line-height: 1; }
+  .top-logo-name span { color: var(--accent); }
   .top-date { color: var(--muted); font-size: 12px; }
 
   /* ── Screens ── */
@@ -234,7 +236,10 @@
 <body>
 
 <div class="top-bar">
-  <div class="top-logo">NALGONDA <span>KNIGHTS</span></div>
+  <div class="top-logo">
+    <img src="/static/logo.avif" alt="Anurag Nalgonda Knights">
+    <div class="top-logo-name">ANURAG NALGONDA <span>KNIGHTS</span></div>
+  </div>
   <div class="top-date" id="top-date"></div>
 </div>
 

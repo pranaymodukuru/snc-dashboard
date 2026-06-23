@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional
 from pathlib import Path
@@ -32,6 +33,7 @@ app.add_middleware(
 
 BASE_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -250,21 +252,25 @@ async def checkin_form(request: Request):
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Knights — Check-in</title>
+<title>Anurag Nalgonda Knights — Check-in</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
 <style>
   body { background:#0a0c0f; color:#e8edf5; font-family:'DM Sans',sans-serif;
          display:flex; flex-direction:column; align-items:center; justify-content:center;
          min-height:100vh; margin:0; text-align:center; padding:24px; }
-  .logo { font-family:'Bebas Neue',sans-serif; font-size:28px; letter-spacing:4px; margin-bottom:48px; }
-  .logo span { color:#00c2ff; }
+  .logo { display:flex; flex-direction:column; align-items:center; gap:12px; margin-bottom:48px; }
+  .logo-name { font-family:'Bebas Neue',sans-serif; font-size:24px; letter-spacing:3px; }
+  .logo-name span { color:#00c2ff; }
   .icon { font-size:56px; margin-bottom:24px; }
   h1 { font-family:'Bebas Neue',sans-serif; font-size:32px; letter-spacing:2px; margin:0 0 12px; }
   p { color:#6b7a90; font-size:14px; line-height:1.6; max-width:320px; }
 </style>
 </head>
 <body>
-  <div class="logo">NALGONDA <span>KNIGHTS</span></div>
+  <div class="logo">
+    <img src="/static/logo.avif" alt="Anurag Nalgonda Knights" style="height:56px; width:auto;">
+    <div class="logo-name">ANURAG NALGONDA <span>KNIGHTS</span></div>
+  </div>
   <div class="icon">🔗</div>
   <h1>USE YOUR PERSONAL LINK</h1>
   <p>This page is no longer active. Open the personal check-in link your coach shared with you.</p>
