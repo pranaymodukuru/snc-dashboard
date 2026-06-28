@@ -1,6 +1,8 @@
-# Nalgonda Knights — S&C Dashboard
+# S&C Dashboard
 
 A cricket team strength & conditioning dashboard built with FastAPI + Streamlit, deployed on Railway.
+
+Built this for my friend who is a Strength and Conditioning coach for Nalgonda Knights in Telangana T20 Premier League - [TG20](https://tg20.org/).
 
 ---
 
