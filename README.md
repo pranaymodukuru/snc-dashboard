@@ -13,19 +13,23 @@ A coach-at-a-glance view updated in real time.
 
 | Panel | What it shows |
 |-------|---------------|
+| **Compliance Banner** | Top-of-page strip showing today's morning check-in rate, evening check-in rate, and combined submission rate across the full squad |
 | **Team Availability** | Donut chart: how many players are Fully Available, Modified, Rehab, or haven't submitted today's check-in |
 | **Fast Bowlers Status** | Table of fast bowlers — bowling days in the last 7 days and dominant intensity (Low / Moderate / High) |
 | **Readiness Scores** | Three metric cards (Green / Yellow / Red) counting players by readiness band for a selected date. Score = Sleep + Energy + (6 − Soreness), max 15; Green ≥ 13, Yellow 10–12, Red < 10 |
 | **Top Concerns** | Up to 5 players flagged today for tightness, low sleep/energy, high soreness, or a non-available self-report |
 | **Wellness Check-in Submitted** | Count of today's submissions vs squad size, with a dropdown listing who hasn't submitted yet |
+| **Squad ACWR** | Horizontal bar chart of every player's acute:chronic workload ratio, colour-coded by risk band (Undertraining / Optimal / Caution / High Risk) |
+| **Check-in Compliance** | Historical submission rate chart — morning, evening, or combined — over a selectable date range |
 
 ### Load Monitor
 Per-player training load analysis. Select a player from the dropdown.
 
 | Panel | What it shows |
 |-------|---------------|
-| **Session Load metrics** | Cards for sessions this week, 7-day avg RPE, 7-day total load (AU = duration × RPE), and ACWR with Low/Moderate/High injury-risk label |
+| **Session Load metrics** | Cards for sessions this week, 7-day avg RPE, 7-day total load (AU = duration × RPE), and ACWR (7-day acute / 28-day chronic) with Undertraining / Optimal / Caution / High Risk label |
 | **28-Day Load Trend** | Bar chart of daily load in AU, color-coded green (< 200) / amber (200–400) / red (> 400) |
+| **Weekly ACWR Trend** | Line chart of ACWR over recent weeks with risk-band reference lines |
 | **Session Type Breakdown** | Donut chart splitting sessions across Training, Match, Gym, Recovery, Rehab |
 | **RPE Distribution** | Bar chart of how often each RPE value (1–10) has been logged |
 | **Bowling Load** *(fast bowlers only)* | Bowling days and dominant intensity this week, plus a 28-day intensity timeline (Low / Moderate / High) |
@@ -49,19 +53,59 @@ Roster and data management (coach only).
 | **Roster Management** | Editable table — add/edit players (name, role, styles, age, status, injury history) |
 | **Player Check-in Links** | Pre-built personal check-in URLs to share with each player |
 | **Export Data** | CSV download buttons for wellness, sessions, evening check-ins, and roster |
+| **Reminder Settings** | Configure and manually trigger morning/evening Telegram reminder times without redeploying |
 
 ### Raw Data
-Filterable, exportable tables for every data source: Morning Check-ins, Evening Check-ins, Session Load, Bowling Check-ins, and Roster.
+Filterable, exportable tables for every data source: Morning Check-ins, Evening Check-ins, Session Load, Bowling Check-ins, and Roster. Each row has an **Edit** button that opens a dialog to correct values in place (PATCH to the API — no delete/re-insert needed).
 
 ---
 
 ## Architecture
 
+There are three logical components but only **two deployed services**:
+
+| Logical component | Deployed as | Who uses it |
+|-------------------|-------------|-------------|
+| **Player check-in UI** | Part of the API service (Jinja2 templates served by FastAPI) | Players (public, no login) |
+| **REST API** | Part of the API service | Dashboard + check-in UI |
+| **Coach dashboard** | Separate Streamlit service | Coaches (password protected) |
+
+```mermaid
+flowchart TB
+    subgraph api_svc["API Service  (Railway — public URL)"]
+        direction TB
+        checkin["Check-in UI\nJinja2 templates\n/checkin/&lt;name&gt;"]
+        api["REST API\nFastAPI routes"]
+        db[("snc.db\nSQLite · Volume")]
+        sched["APScheduler\nTelegram reminders"]
+
+        checkin --> api
+        api <--> db
+        sched --> db
+    end
+
+    subgraph dash_svc["Dashboard Service  (Railway — public URL)"]
+        dashboard["Streamlit\nCoach Dashboard"]
+    end
+
+    player("📱 Player")
+    coach("🧑‍💼 Coach")
+    telegram("Telegram")
+
+    player -- "GET /checkin/&lt;name&gt;" --> checkin
+    player -- "POST /submit/wellness" --> api
+    coach -- "HTTPS · password protected" --> dashboard
+    dashboard -- "HTTP · Railway private network\nGET · POST · PATCH · DELETE /data/*\nX-API-Key header" --> api
+    sched -- "Bot API" --> telegram
+    telegram -- "daily reminder" --> player
 ```
-api/                     FastAPI — serves player check-in form, saves submissions to CSV
+
+```
+api/                     FastAPI — REST API + player check-in UI (two logical roles, one service)
   main.py
+  notifications.py       APScheduler + Telegram reminder logic
   templates/
-    checkin.html         Player check-in (open, no login required)
+    checkin.html         Player check-in form (open, no login required)
   requirements.txt
   Dockerfile
 
@@ -73,30 +117,41 @@ dashboard/               Streamlit — coach dashboard (password protected)
   Dockerfile
 
 data/                    SQLite database (Railway stores this on a Volume)
-  snc.db                 single file: wellness, sessions, evening, roster tables
+  snc.db                 four tables: wellness, sessions, evening, roster
 
 .env.example             Copy to .env for local dev
 ```
 
 **Data flow:**
 ```
-Player opens /checkin/<their-name> (FastAPI)
+Player opens /checkin/<their-name>  (served by FastAPI, no login)
         ↓
-Selects name → fills in sliders → submits
+Selects name → fills sliders → submits
         ↓
 POST /submit/wellness → row inserted into snc.db (on the API's Volume)
         ↓
 Coach opens Streamlit dashboard (password protected)
         ↓
-Dashboard calls the API over HTTP (GET /data/*) → renders charts
+Dashboard calls the API over HTTP (GET /data/*, PATCH /data/*, etc.) → renders charts
 ```
 
 > The database lives **only** on the API service. The dashboard never touches
 > the Volume directly — it reads and writes through the API over HTTP (`API_URL`).
 
 **Two URLs in production:**
-- `https://your-api.railway.app/checkin/<player-name>` → per-player check-in link (share each player's own link from the dashboard Admin tab)
+- `https://your-api.railway.app/checkin/<player-name>` → per-player check-in link (share from the Admin tab)
 - `https://your-dashboard.railway.app` → coach dashboard (password protected)
+
+### Current limitation — check-in UI and REST API share one service
+
+The player-facing check-in form is bundled with the API because it was the simplest
+deployment path: one Railway service, one Volume, one Dockerfile. This means any
+change to the check-in UI (template tweaks, new form fields) requires redeploying
+the same service that handles all API traffic.
+
+> **Phase 2** will split these into three independent services — a dedicated
+> check-in UI service, the REST API, and the dashboard — so each can be scaled,
+> deployed, and iterated on independently. This is not in scope yet.
 
 ---
 
@@ -214,6 +269,9 @@ dashboard reaches the data through the API, not the disk.
 | Variable | Value | Notes |
 |----------|-------|-------|
 | `DATA_DIR` | `/data` | Must match the Volume mount path |
+| `INTERNAL_API_KEY` | *(random hex)* | Shared secret for admin/mutating endpoints. Generate: `python -c "import secrets; print(secrets.token_hex(32))"` |
+| `TELEGRAM_BOT_TOKEN` | *(from @BotFather)* | Optional — enables morning/evening player reminders |
+| `TZ` | `Asia/Kolkata` | Scheduler timezone for reminders |
 
 **Dashboard service:**
 
@@ -222,6 +280,7 @@ dashboard reaches the data through the API, not the disk.
 | `DASHBOARD_PASSWORD` | `YourSecretPassword` | Coach login password |
 | `API_URL` | `http://<api-service>.railway.internal:8000` | Private URL of the API service (no public traffic) |
 | `PUBLIC_URL` | `https://your-api.railway.app` | API's public domain — used to build player check-in links |
+| `INTERNAL_API_KEY` | *(same as API service)* | Must match the API service value |
 
 To set variables:
 - Click the service → **Variables** tab → **New Variable**
