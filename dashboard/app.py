@@ -621,6 +621,38 @@ def render_overview():
     st.markdown("<hr style='border-color:#1f2530;margin:10px 0 16px;'>", unsafe_allow_html=True)
 
     # ════════════════════════════════════════════════════════════════════════
+    # COMPLIANCE BANNER — Overall · Morning · Evening
+    # ════════════════════════════════════════════════════════════════════════
+    n_players = len(roster) if not roster.empty else 1
+    n_days = max(span_days, 1)
+    total_possible = n_players * n_days
+
+    morn_submissions = int(
+        wellness[(wellness["date"] >= start) & (wellness["date"] <= end)]
+        .drop_duplicates(subset=["player_name", "date"])
+        .shape[0]
+    )
+    eve_submissions = int(
+        evening[(evening["date"] >= start) & (evening["date"] <= end)]
+        .drop_duplicates(subset=["player_name", "date"])
+        .shape[0]
+    )
+
+    morn_pct = round(morn_submissions / total_possible * 100)
+    eve_pct  = round(eve_submissions  / total_possible * 100)
+    overall  = round((morn_submissions + eve_submissions) / (2 * total_possible) * 100)
+
+    cb1, cb2, cb3 = st.columns(3)
+    cb1.metric("Overall Compliance", f"{overall}%",
+               help="Combined morning + evening submissions vs expected")
+    cb2.metric("Morning Check-ins", f"{morn_pct}%",
+               help=f"{morn_submissions} of {total_possible} expected")
+    cb3.metric("Evening Check-ins", f"{eve_pct}%",
+               help=f"{eve_submissions} of {total_possible} expected")
+
+    st.markdown("<hr style='border-color:#1f2530;margin:10px 0 16px;'>", unsafe_allow_html=True)
+
+    # ════════════════════════════════════════════════════════════════════════
     # ROW 1 — Squad Readiness · Wellness Summary · Availability
     # ════════════════════════════════════════════════════════════════════════
     r1c1, r1c2, r1c3 = st.columns([1, 1.2, 1], gap="medium")
