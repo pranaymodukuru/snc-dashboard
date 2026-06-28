@@ -49,7 +49,7 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="SNC Check-in API", lifespan=lifespan)
+app = FastAPI(title="SNC Check-in API", lifespan=lifespan, docs_url=None, redoc_url=None)
 
 app.add_middleware(
     CORSMiddleware,
@@ -57,6 +57,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_PROTECTED_PREFIXES = ("/data/", "/config", "/admin/")
+_API_KEY = os.getenv("INTERNAL_API_KEY", "")
+
+
+@app.middleware("http")
+async def require_api_key(request: Request, call_next):
+    path = request.url.path
+    if any(path.startswith(p) for p in _PROTECTED_PREFIXES):
+        if not _API_KEY or request.headers.get("X-API-Key") != _API_KEY:
+            return Response(status_code=403, content="Forbidden")
+    return await call_next(request)
 
 BASE_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))

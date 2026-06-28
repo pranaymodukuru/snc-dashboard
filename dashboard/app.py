@@ -23,6 +23,9 @@ if not DASHBOARD_PASSWORD:
     raise RuntimeError("DASHBOARD_PASSWORD env var not set")
 API_URL = os.getenv("API_URL", "http://localhost:8000")
 
+_api_session = requests.Session()
+_api_session.headers.update({"X-API-Key": os.getenv("INTERNAL_API_KEY", "")})
+
 # Public base URL for player-facing links (check-in forms etc.)
 # Set PUBLIC_URL in Railway dashboard env vars to the API's public domain.
 # Locally falls back to API_URL (http://localhost:8000).
@@ -134,7 +137,7 @@ DARK_LAYOUT = dict(
 def _api_get(path: str) -> list:
     """GET from API; returns list of records or empty list on error."""
     try:
-        r = requests.get(f"{API_URL}{path}", timeout=5)
+        r = _api_session.get(f"{API_URL}{path}", timeout=5)
         r.raise_for_status()
         return r.json()
     except Exception as e:
@@ -1031,7 +1034,7 @@ with tab_overview:
 
 def _patch_row(table: str, row_id: int, updates: dict) -> bool:
     try:
-        r = requests.patch(f"{API_URL}/data/{table}/{row_id}", json=updates, timeout=5)
+        r = _api_session.patch(f"{API_URL}/data/{table}/{row_id}", json=updates, timeout=5)
         r.raise_for_status()
         st.cache_data.clear()
         return True
@@ -1177,7 +1180,7 @@ def render_raw_data():
     def _delete_rows(table: str, row_ids: list):
         for rid in row_ids:
             try:
-                requests.delete(f"{API_URL}/data/{table}/{rid}", timeout=5)
+                _api_session.delete(f"{API_URL}/data/{table}/{rid}", timeout=5)
             except Exception as e:
                 st.error(f"Delete failed for row {rid}: {e}")
         st.cache_data.clear()
@@ -1399,7 +1402,7 @@ def render_player_load():
             with cc1:
                 if st.button("Submit", type="primary", key="sl_submit"):
                     try:
-                        r = requests.post(f"{API_URL}/data/sessions", json={
+                        r = _api_session.post(f"{API_URL}/data/sessions", json={
                             "player_name": sel, "session_type": s_type,
                             "duration_mins": s_dur, "rpe": s_rpe, "notes": s_notes,
                         }, timeout=5)
@@ -2096,7 +2099,7 @@ def render_admin_tab():
             try:
                 import json
                 records = json.loads(edited.to_json(orient="records"))
-                r = requests.put(f"{API_URL}/data/roster",
+                r = _api_session.put(f"{API_URL}/data/roster",
                                  json=records, timeout=10)
                 r.raise_for_status()
                 load_roster.clear()
@@ -2118,7 +2121,7 @@ def render_admin_tab():
         if st.button("Delete Player", type="secondary"):
             player_id = player_options[selected_label]
             try:
-                r = requests.delete(f"{API_URL}/data/roster/{player_id}", timeout=10)
+                r = _api_session.delete(f"{API_URL}/data/roster/{player_id}", timeout=10)
                 r.raise_for_status()
                 load_roster.clear()
                 st.success(f"Deleted {selected_label}")
@@ -2155,7 +2158,7 @@ def render_admin_tab():
     st.subheader("Telegram Reminders")
 
     try:
-        cfg = requests.get(f"{API_URL}/config", timeout=5).json()
+        cfg = _api_session.get(f"{API_URL}/config", timeout=5).json()
     except Exception:
         cfg = {"morning_reminder_time": "07:30", "evening_reminder_time": "18:00"}
 
@@ -2175,7 +2178,7 @@ def render_admin_tab():
         st.markdown("<div style='padding-top:28px'>", unsafe_allow_html=True)
         if st.button("Save Schedule", use_container_width=True):
             try:
-                r = requests.put(f"{API_URL}/config", json={
+                r = _api_session.put(f"{API_URL}/config", json={
                     "morning_reminder_time": morning_time.strftime("%H:%M"),
                     "evening_reminder_time": evening_time.strftime("%H:%M"),
                 }, timeout=10)
@@ -2190,7 +2193,7 @@ def render_admin_tab():
     with c_morn:
         if st.button("Send Morning Reminder", use_container_width=True):
             try:
-                r = requests.post(f"{API_URL}/admin/notify/morning", timeout=30)
+                r = _api_session.post(f"{API_URL}/admin/notify/morning", timeout=30)
                 r.raise_for_status()
                 d = r.json()
                 st.success(f"Sent: {d['sent']} | Failed: {d['failed']}")
@@ -2199,7 +2202,7 @@ def render_admin_tab():
     with c_eve:
         if st.button("Send Evening Reminder", use_container_width=True):
             try:
-                r = requests.post(f"{API_URL}/admin/notify/evening", timeout=30)
+                r = _api_session.post(f"{API_URL}/admin/notify/evening", timeout=30)
                 r.raise_for_status()
                 d = r.json()
                 st.success(f"Sent: {d['sent']} | Failed: {d['failed']}")
