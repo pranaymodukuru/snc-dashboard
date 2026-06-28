@@ -2150,6 +2150,63 @@ def render_admin_tab():
             st.info("No players in roster yet.")
 
     st.divider()
+
+    # ── Telegram Reminders ───────────────────────────────────────────────────
+    st.subheader("Telegram Reminders")
+
+    try:
+        cfg = requests.get(f"{API_URL}/config", timeout=5).json()
+    except Exception:
+        cfg = {"morning_reminder_time": "07:30", "evening_reminder_time": "18:00"}
+
+    from datetime import time as dt_time
+
+    def _to_time(s: str) -> dt_time:
+        h, m = s.split(":")
+        return dt_time(int(h), int(m))
+
+    st.caption("Set the daily schedule for automatic reminders (times are in IST).")
+    c_mt, c_et, c_save_times = st.columns([1, 1, 1])
+    with c_mt:
+        morning_time = st.time_input("Morning reminder", value=_to_time(cfg["morning_reminder_time"]), key="morning_time")
+    with c_et:
+        evening_time = st.time_input("Evening reminder", value=_to_time(cfg["evening_reminder_time"]), key="evening_time")
+    with c_save_times:
+        st.markdown("<div style='padding-top:28px'>", unsafe_allow_html=True)
+        if st.button("Save Schedule", use_container_width=True):
+            try:
+                r = requests.put(f"{API_URL}/config", json={
+                    "morning_reminder_time": morning_time.strftime("%H:%M"),
+                    "evening_reminder_time": evening_time.strftime("%H:%M"),
+                }, timeout=10)
+                r.raise_for_status()
+                st.success("Schedule saved!")
+            except Exception as e:
+                st.error(f"Failed: {e}")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.caption("Or send a reminder blast right now.")
+    c_morn, c_eve, _gap = st.columns([1, 1, 3])
+    with c_morn:
+        if st.button("Send Morning Reminder", use_container_width=True):
+            try:
+                r = requests.post(f"{API_URL}/admin/notify/morning", timeout=30)
+                r.raise_for_status()
+                d = r.json()
+                st.success(f"Sent: {d['sent']} | Failed: {d['failed']}")
+            except Exception as e:
+                st.error(f"Failed: {e}")
+    with c_eve:
+        if st.button("Send Evening Reminder", use_container_width=True):
+            try:
+                r = requests.post(f"{API_URL}/admin/notify/evening", timeout=30)
+                r.raise_for_status()
+                d = r.json()
+                st.success(f"Sent: {d['sent']} | Failed: {d['failed']}")
+            except Exception as e:
+                st.error(f"Failed: {e}")
+
+    st.divider()
     st.subheader("Export Data")
     c1, c2, c3, c4 = st.columns(4)
     export_dfs = {

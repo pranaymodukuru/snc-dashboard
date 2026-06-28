@@ -14,12 +14,39 @@ from contextlib import asynccontextmanager
 import math
 import os
 import aiosqlite
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+import api.notifications as notifications
+
+
+def _parse_time(val: str) -> tuple[int, int]:
+    h, m = val.split(":")
+    return int(h), int(m)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+
+    cfg = await get_config()
+    scheduler = AsyncIOScheduler(timezone=os.getenv("TZ", "Asia/Kolkata"))
+
+    async def _morning():
+        await notifications.send_morning_reminders(DB_PATH)
+
+    async def _evening():
+        await notifications.send_evening_reminders(DB_PATH)
+
+    morning_h, morning_m = _parse_time(cfg["morning_reminder_time"])
+    evening_h, evening_m = _parse_time(cfg["evening_reminder_time"])
+    scheduler.add_job(_morning, CronTrigger(hour=morning_h, minute=morning_m), id="morning_reminder")
+    scheduler.add_job(_evening, CronTrigger(hour=evening_h, minute=evening_m), id="evening_reminder")
+    scheduler.start()
+    app.state.scheduler = scheduler
+
     yield
+
+    scheduler.shutdown(wait=False)
 
 
 app = FastAPI(title="SNC Check-in API", lifespan=lifespan)
@@ -168,6 +195,12 @@ async def _roster_players() -> tuple[list, list, list]:
     return players, fast_bowlers, allrounders
 
 
+CONFIG_DEFAULTS = {
+    "morning_reminder_time": "07:30",
+    "evening_reminder_time": "18:00",
+}
+
+
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("PRAGMA journal_mode=WAL;")
@@ -181,6 +214,30 @@ async def init_db():
             for c in cols:
                 if c not in existing:
                     await db.execute(f'ALTER TABLE "{table}" ADD COLUMN "{c}" {_col_type(c)}')
+        await db.execute(
+            'CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL)'
+        )
+        for k, v in CONFIG_DEFAULTS.items():
+            await db.execute('INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)', (k, v))
+        await db.commit()
+
+
+async def get_config() -> dict:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT key, value FROM config') as cur:
+            rows = await cur.fetchall()
+    cfg = dict(CONFIG_DEFAULTS)
+    cfg.update({r["key"]: r["value"] for r in rows})
+    return cfg
+
+
+async def set_config(key: str, value: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            'INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+            (key, value),
+        )
         await db.commit()
 
 
@@ -389,6 +446,76 @@ async def delete_row(table: str, row_id: int):
         await db.execute(f'DELETE FROM "{table}" WHERE rowid = ?', (row_id,))
         await db.commit()
     return {"status": "ok"}
+
+
+# ── Config endpoints ─────────────────────────────────────────────────────────
+
+@app.get("/config")
+async def read_config():
+    return await get_config()
+
+
+class ConfigUpdate(BaseModel):
+    morning_reminder_time: Optional[str] = None
+    evening_reminder_time: Optional[str] = None
+
+
+@app.put("/config")
+async def update_config(body: ConfigUpdate, request: Request):
+    updates = body.model_dump(exclude_none=True)
+    for key, value in updates.items():
+        # Validate HH:MM format
+        try:
+            _parse_time(value)
+        except Exception:
+            raise HTTPException(status_code=400, detail=f"Invalid time format for {key}: use HH:MM")
+        await set_config(key, value)
+
+    # Reschedule jobs with new times
+    scheduler = request.app.state.scheduler
+    cfg = await get_config()
+    if "morning_reminder_time" in updates:
+        h, m = _parse_time(cfg["morning_reminder_time"])
+        scheduler.reschedule_job("morning_reminder", trigger=CronTrigger(hour=h, minute=m))
+    if "evening_reminder_time" in updates:
+        h, m = _parse_time(cfg["evening_reminder_time"])
+        scheduler.reschedule_job("evening_reminder", trigger=CronTrigger(hour=h, minute=m))
+
+    return cfg
+
+
+# ── Admin: manual notification triggers ─────────────────────────────────────
+
+@app.post("/admin/notify/morning")
+async def trigger_morning():
+    return await notifications.send_morning_reminders(DB_PATH)
+
+
+@app.post("/admin/notify/evening")
+async def trigger_evening():
+    return await notifications.send_evening_reminders(DB_PATH)
+
+
+# ── Telegram bot webhook ─────────────────────────────────────────────────────
+# Players send /start to the bot; it replies with their chat_id so they can
+# share it with the coach to add to the roster contact field.
+
+@app.post("/telegram/webhook")
+async def telegram_webhook(request: Request):
+    data = await request.json()
+    message = data.get("message", {})
+    text = message.get("text", "")
+    chat_id = message.get("chat", {}).get("id")
+    first_name = message.get("from", {}).get("first_name", "")
+    if chat_id and text.startswith("/start"):
+        reply = (
+            f"Hi {first_name}! 👋\n\n"
+            f"Your Telegram Chat ID is:\n"
+            f"`{chat_id}`\n\n"
+            f"Send this number to your coach so they can add it to the roster."
+        )
+        notifications.send_telegram(str(chat_id), reply)
+    return {"ok": True}
 
 
 # ── Health ───────────────────────────────────────────────────────────────────
