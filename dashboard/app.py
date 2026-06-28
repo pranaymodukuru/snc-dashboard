@@ -1417,6 +1417,86 @@ def render_player_load():
     st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
 
     # ════════════════════════════════════════════════════════════════════════
+    # CHECK-IN COMPLIANCE PANEL
+    # ════════════════════════════════════════════════════════════════════════
+    st.markdown("### Check-in Compliance")
+
+    ci_range_options = {"Last 7 days": 7, "Last 14 days": 14, "Last 28 days": 28, "Last 60 days": 60}
+    ci_range_sel = st.selectbox(
+        "Timeframe", list(ci_range_options.keys()), index=0,
+        key=f"ci_range_{sel}", label_visibility="collapsed"
+    )
+    ci_days = ci_range_options[ci_range_sel]
+    ci_start = today - timedelta(days=ci_days - 1)
+
+    # Build a full date spine for the selected range
+    all_dates = pd.date_range(ci_start, today, freq="D").date
+
+    # Wellness (morning) submissions for this player in range
+    wellness_all = load_wellness()
+    pw = wellness_all[wellness_all["player_name"] == sel].copy() if not wellness_all.empty else pd.DataFrame()
+    morning_dates = set()
+    if not pw.empty and "date" in pw.columns:
+        morning_dates = set(pw[pw["date"] >= ci_start]["date"].tolist())
+
+    # Evening submissions for this player in range
+    evening_dates = set()
+    if not pec.empty and "date" in pec.columns:
+        evening_dates = set(pec[pec["date"] >= ci_start]["date"].tolist())
+
+    ci_rows = []
+    for d in all_dates:
+        ci_rows.append({
+            "date_str": str(d),
+            "Morning": 1 if d in morning_dates else 0,
+            "Evening": 1 if d in evening_dates else 0,
+        })
+    ci_df = pd.DataFrame(ci_rows)
+
+    morning_total  = int(ci_df["Morning"].sum())
+    evening_total  = int(ci_df["Evening"].sum())
+    total_days     = len(all_dates)
+
+    mc1, mc2, mc3 = st.columns(3)
+    with mc1: st.markdown(_metric_card("Morning check-ins", f"{morning_total} / {total_days}"), unsafe_allow_html=True)
+    with mc2: st.markdown(_metric_card("Evening check-ins", f"{evening_total} / {total_days}"), unsafe_allow_html=True)
+    with mc3:
+        both = int((ci_df["Morning"] & ci_df["Evening"]).sum())
+        st.markdown(_metric_card("Both submitted", f"{both} / {total_days}"), unsafe_allow_html=True)
+
+    st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
+
+    fig_ci = go.Figure()
+    fig_ci.add_trace(go.Bar(
+        x=ci_df["date_str"],
+        y=ci_df["Morning"],
+        name="Morning",
+        marker_color="#E8302A",
+        hovertemplate="<b>%{x}</b><br>Morning: %{customdata}<extra></extra>",
+        customdata=["Submitted" if v else "Missing" for v in ci_df["Morning"]],
+    ))
+    fig_ci.add_trace(go.Bar(
+        x=ci_df["date_str"],
+        y=ci_df["Evening"],
+        name="Evening",
+        marker_color="#f59e0b",
+        hovertemplate="<b>%{x}</b><br>Evening: %{customdata}<extra></extra>",
+        customdata=["Submitted" if v else "Missing" for v in ci_df["Evening"]],
+    ))
+    fig_ci.update_layout(
+        **{**DARK_LAYOUT, "margin": dict(t=16, b=24, l=8, r=8)},
+        height=200, barmode="group", bargap=0.25, bargroupgap=0.05,
+        title=dict(text=f"Check-in Submissions — {ci_range_sel}", font=dict(size=13), x=0),
+        xaxis=dict(gridcolor="#1f2530"),
+        yaxis=dict(gridcolor="#1f2530", tickvals=[0, 1], ticktext=["Missing", "Submitted"], range=[-0.1, 1.4]),
+        legend=dict(orientation="h", y=-0.3),
+    )
+    st.plotly_chart(fig_ci, use_container_width=True, key=f"ci_compliance_{sel}_{ci_range_sel}")
+
+    st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+    st.divider()
+
+    # ════════════════════════════════════════════════════════════════════════
     # SESSION LOAD SECTION
     # ════════════════════════════════════════════════════════════════════════
     st.markdown("### Session Load")
