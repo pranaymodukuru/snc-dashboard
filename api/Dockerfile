@@ -6,6 +6,6 @@ WORKDIR /app
 ENV DATA_DIR=/app/data
 COPY pyproject.toml .
 RUN uv sync --no-dev
-COPY api/ .
+COPY api/ api/
 EXPOSE 8000
-CMD ["sh", "-c", "uv run uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "uv run uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
