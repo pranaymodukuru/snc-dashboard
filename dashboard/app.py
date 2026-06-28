@@ -590,6 +590,7 @@ def render_overview():
     roster   = load_roster()
     wellness = load_wellness()
     evening  = load_evening()
+    sessions = load_sessions()
     today    = date.today()
 
     # ── Header row: title + start→end date range ─────────────────────────────
@@ -956,40 +957,84 @@ def render_overview():
                 f"</tr></thead><tbody>{body}</tbody></table></div>", unsafe_allow_html=True)
 
     with r3c3:
-        _panel_title("Wellness Trend")
-        if wellness.empty or "date" not in wellness.columns:
-            st.info("No wellness history.")
+        _panel_title("Squad ACWR")
+        # Use whichever source has data: formal sessions (load_au) or evening
+        # check-ins (evening_au = RPE × hours, scaled to minutes-equivalent).
+        _has_sessions = not sessions.empty and "load_au" in sessions.columns
+        _has_evening  = not evening.empty  and "evening_au" in evening.columns
+        if roster.empty or (not _has_sessions and not _has_evening):
+            st.info("No session data yet.")
         else:
-            hist = wellness[(wellness["date"] >= start) & (wellness["date"] <= end)].copy()
-            if hist.empty:
-                st.info("No wellness in this range.")
+            now_ts    = pd.Timestamp(today)
+            week_ago  = now_ts - timedelta(days=7)
+            month_ago = now_ts - timedelta(days=28)
+
+            # Build a unified load frame: prefer formal sessions; fall back to evening.
+            if _has_sessions:
+                src = sessions[["player_name", "date", "load_au"]].copy()
+                src["date"] = pd.to_datetime(src["date"])
+                src = src.rename(columns={"load_au": "au"})
             else:
-                hist["wpct"] = hist.apply(wellness_pct, axis=1)
-                daily = hist.sort_values("timestamp").groupby(["date", "player_name"]).last().reset_index()
-                squad = daily.groupby("date")["wpct"].mean().reset_index()
-                squad["date_str"] = squad["date"].astype(str)
+                src = evening[["player_name", "date", "evening_au"]].copy()
+                src["date"] = pd.to_datetime(src["date"])
+                # evening_au = RPE × hours; multiply by 60 to get AU in RPE × minutes
+                src["au"] = src["evening_au"] * 60
+                src = src.drop(columns=["evening_au"])
+
+            acwr_rows = []
+            for _, rr in roster.iterrows():
+                name = rr.get("name")
+                if not name:
+                    continue
+                ps = src[src["player_name"] == name]
+                if ps.empty:
+                    continue
+                acute = ps[ps["date"] >= week_ago]["au"].sum()
+                days_of_data = max((now_ts - ps["date"].min()).days + 1, 1)
+                chronic_weeks = min(days_of_data, 28) / 7
+                chronic = ps[ps["date"] >= month_ago]["au"].sum() / chronic_weeks
+                if chronic <= 0:
+                    continue
+                acwr_val = round(acute / chronic, 2)
+                if acwr_val < 0.8:
+                    color = "#f59e0b"
+                elif acwr_val <= 1.3:
+                    color = "#22c55e"
+                elif acwr_val <= 1.5:
+                    color = "#f59e0b"
+                else:
+                    color = "#ef4444"
+                acwr_rows.append({"player": name, "acwr": acwr_val, "color": color})
+
+            if not acwr_rows:
+                st.info("Not enough session data to compute ACWR.")
+            else:
+                acwr_df = pd.DataFrame(acwr_rows).sort_values("acwr", ascending=True)
                 fig = go.Figure()
-                flagged_players = []
-                if not per_player.empty:
-                    lp = per_player.copy(); lp["wpct"] = lp.apply(wellness_pct, axis=1)
-                    flagged_players = lp.sort_values("wpct").head(3)["player_name"].tolist()
-                palette = ["#ef4444", "#f59e0b", "#E8302A"]
-                for i, pl in enumerate(flagged_players):
-                    pld = daily[daily["player_name"] == pl]
-                    if not pld.empty:
-                        fig.add_trace(go.Scatter(
-                            x=pld["date"].astype(str), y=pld["wpct"], name=pl,
-                            mode="lines+markers", line=dict(color=palette[i % 3], width=2),
-                            marker=dict(size=5)))
-                fig.add_trace(go.Scatter(
-                    x=squad["date_str"], y=squad["wpct"].round(0), name="Squad Avg",
-                    mode="lines+markers", line=dict(color="#9fb0c6", width=2, dash="dash"),
-                    marker=dict(size=5)))
-                fig.update_layout(**{**DARK_LAYOUT, "margin": dict(t=6, b=6, l=6, r=6)},
-                                  height=220, yaxis=dict(range=[0, 100], gridcolor="#1f2530", title=""),
-                                  xaxis=dict(gridcolor="#1f2530"),
-                                  legend=dict(orientation="h", y=-0.25, font=dict(size=10)))
-                st.plotly_chart(fig, use_container_width=True, key="ov_wellness_trend")
+                fig.add_vrect(x0=0.8, x1=1.3, fillcolor="rgba(34,197,94,0.08)",
+                              line_width=0, annotation_text="Optimal",
+                              annotation_position="top left",
+                              annotation_font=dict(size=9, color="#22c55e"))
+                fig.add_trace(go.Bar(
+                    y=acwr_df["player"], x=acwr_df["acwr"],
+                    orientation="h",
+                    marker_color=acwr_df["color"],
+                    text=acwr_df["acwr"].astype(str),
+                    textposition="outside",
+                    hovertemplate="%{y}: ACWR %{x}<extra></extra>",
+                ))
+                fig.add_vline(x=0.8, line_dash="dot", line_color="#6b7a90", line_width=1)
+                fig.add_vline(x=1.3, line_dash="dot", line_color="#f59e0b", line_width=1)
+                fig.add_vline(x=1.5, line_dash="dot", line_color="#ef4444", line_width=1)
+                fig.update_layout(
+                    **{**DARK_LAYOUT, "margin": dict(t=6, b=6, l=6, r=40)},
+                    height=max(180, len(acwr_rows) * 28 + 40),
+                    xaxis=dict(range=[0, max(acwr_df["acwr"].max() * 1.25, 2.0)],
+                               gridcolor="#1f2530", title="ACWR"),
+                    yaxis=dict(gridcolor="#1f2530"),
+                    showlegend=False,
+                )
+                st.plotly_chart(fig, use_container_width=True, key="ov_acwr_squad")
 
     # ════════════════════════════════════════════════════════════════════════
     # Players Requiring Attention + S&C Recommendation
@@ -1569,19 +1614,41 @@ def render_player_load():
         avg_rpe_week       = round(ps_week["rpe"].mean(), 1) if not ps_week.empty else 0
         total_load_week    = int(ps_week["load_au"].sum())
 
-        # ACWR
-        acute   = ps_week["load_au"].sum()
-        chronic = ps_month["load_au"].sum() / 4 if len(ps_month) >= 4 else ps_month["load_au"].sum()
-        acwr    = round(acute / chronic, 2) if chronic > 0 else 0.0
-        acwr_risk = "Low" if acwr < 1.3 else ("High" if acwr > 1.5 else "Moderate")
-        acwr_color = {"Low": "#22c55e", "Moderate": "#f59e0b", "High": "#ef4444"}.get(acwr_risk, "#6b7a90")
+        # ACWR — use date-range coverage for denominator so early-season numbers
+        # are still meaningful instead of artificially inflating chronic load.
+        acute        = ps_week["load_au"].sum()
+        ps["date"]   = pd.to_datetime(ps["date"])
+        days_of_data = max((pd.Timestamp(today) - ps["date"].min()).days + 1, 1) if not ps.empty else 28
+        chronic_weeks = min(days_of_data, 28) / 7
+        chronic      = ps_month["load_au"].sum() / chronic_weeks
+        acwr         = round(acute / chronic, 2) if chronic > 0 else None
+
+        if acwr is None:
+            acwr_label, acwr_risk, acwr_color = "—", "No data", "#6b7a90"
+        elif acwr < 0.8:
+            acwr_label, acwr_risk, acwr_color = str(acwr), "Undertraining", "#f59e0b"
+        elif acwr <= 1.3:
+            acwr_label, acwr_risk, acwr_color = str(acwr), "Optimal", "#22c55e"
+        elif acwr <= 1.5:
+            acwr_label, acwr_risk, acwr_color = str(acwr), "Caution", "#f59e0b"
+        else:
+            acwr_label, acwr_risk, acwr_color = str(acwr), "High Risk", "#ef4444"
+
+        # Role-based weekly AU target
+        player_role = player_row.get("type", "")
+        band_name, au_lo, au_hi = player_au_band(player_role, is_fb)
+        au_target_sub = f"{band_name}: {au_lo}–{au_hi} AU/wk"
+        au_week_color = _load_color_for_role(total_load_week, player_role, is_fb)
 
         # ── Key metrics cards ────────────────────────────────────────────────
-        m1, m2, m3, m4 = st.columns(4)
+        m1, m2, m3, m4, m5 = st.columns(5)
         with m1: st.markdown(_metric_card("Sessions this week", str(sessions_this_week)), unsafe_allow_html=True)
         with m2: st.markdown(_metric_card("Avg RPE (7d)", str(avg_rpe_week), color=_rpe_color(avg_rpe_week)), unsafe_allow_html=True)
-        with m3: st.markdown(_metric_card("Total Load (7d)", f"{total_load_week} AU", color=_load_color(total_load_week)), unsafe_allow_html=True)
-        with m4: st.markdown(_metric_card("ACWR", str(acwr), sub=f"{acwr_risk} risk", color=acwr_color), unsafe_allow_html=True)
+        with m3: st.markdown(_metric_card("Weekly Load", f"{total_load_week} AU", sub=au_target_sub, color=au_week_color), unsafe_allow_html=True)
+        with m4: st.markdown(_metric_card("ACWR", acwr_label, sub=acwr_risk, color=acwr_color), unsafe_allow_html=True)
+        with m5:
+            chronic_display = int(chronic) if chronic > 0 else 0
+            st.markdown(_metric_card("Chronic Load", f"{chronic_display} AU", sub="avg weekly (28d)"), unsafe_allow_html=True)
 
         st.markdown("<div style='height:20px;'></div>", unsafe_allow_html=True)
 
@@ -1610,6 +1677,44 @@ def render_player_load():
                 yaxis=dict(gridcolor="#1f2530", title="Load (AU)"),
             )
             st.plotly_chart(fig_load, use_container_width=True, key=f"load_trend_{sel}")
+
+        # ── 4-week ACWR chart ─────────────────────────────────────────────────
+        if not ps.empty and "load_au" in ps.columns:
+            ps_ts = ps.copy()
+            ps_ts["date"] = pd.to_datetime(ps_ts["date"])
+            # Build week buckets: W-3, W-2, W-1, W0 (current week)
+            week_rows = []
+            for w in range(3, -1, -1):
+                w_end   = pd.Timestamp(today) - timedelta(days=w * 7)
+                w_start = w_end - timedelta(days=6)
+                mask    = (ps_ts["date"] >= w_start) & (ps_ts["date"] <= w_end)
+                wload   = int(ps_ts[mask]["load_au"].sum())
+                label   = "This week" if w == 0 else f"W-{w}"
+                week_rows.append({"label": label, "load": wload})
+            week_df = pd.DataFrame(week_rows)
+            week_df["color"] = week_df["load"].apply(lambda v: _load_color_for_role(v, player_role, is_fb))
+
+            fig_wk = go.Figure()
+            fig_wk.add_trace(go.Bar(
+                x=week_df["label"], y=week_df["load"],
+                marker_color=week_df["color"],
+                hovertemplate="%{x}: %{y} AU<extra></extra>",
+            ))
+            # Sweet-spot band
+            fig_wk.add_hrect(y0=au_lo, y1=au_hi, fillcolor="rgba(34,197,94,0.08)",
+                             line_width=0, annotation_text=f"Target ({band_name})",
+                             annotation_position="top right",
+                             annotation_font=dict(size=10, color="#22c55e"))
+            fig_wk.add_hline(y=au_lo, line_dash="dot", line_color="#22c55e", line_width=1)
+            fig_wk.add_hline(y=au_hi, line_dash="dot", line_color="#ef4444", line_width=1)
+            fig_wk.update_layout(
+                **{**DARK_LAYOUT, "margin": dict(t=16, b=24, l=8, r=8)},
+                height=240, showlegend=False,
+                title=dict(text="Weekly Load — Last 4 Weeks (AU)", font=dict(size=13), x=0),
+                xaxis=dict(gridcolor="#1f2530"),
+                yaxis=dict(gridcolor="#1f2530", title="Load (AU)"),
+            )
+            st.plotly_chart(fig_wk, use_container_width=True, key=f"weekly_acwr_{sel}")
 
         # ── Session breakdown + RPE distribution ─────────────────────────────
         col_type, col_rpe = st.columns(2)
