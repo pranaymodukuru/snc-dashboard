@@ -33,8 +33,19 @@ def send_telegram(chat_id: str, message: str) -> bool:
         return False
 
 
+async def _already_submitted(db, table: str, player_name: str, today: str) -> bool:
+    async with db.execute(
+        f"SELECT 1 FROM {table} WHERE player_name = ? AND timestamp LIKE ? LIMIT 1",
+        (player_name, f"{today}%"),
+    ) as cur:
+        return await cur.fetchone() is not None
+
+
 async def send_morning_reminders(db_path) -> dict:
     import aiosqlite
+    from datetime import date
+    today = date.today().isoformat()
+
     async with aiosqlite.connect(db_path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
@@ -42,26 +53,32 @@ async def send_morning_reminders(db_path) -> dict:
         ) as cur:
             players = await cur.fetchall()
 
-    sent, failed = 0, 0
-    for row in players:
-        name, chat_id = row["name"], row["contact"]
-        url = _build_checkin_url(name)
-        msg = (
-            f"Good morning {name}! 🏏 Don't forget your morning wellness check-in:\n"
-            f"{url}\n"
-            f"Takes less than 2 minutes!"
-        )
-        if send_telegram(chat_id, msg):
-            sent += 1
-        else:
-            failed += 1
+        sent, failed, skipped = 0, 0, 0
+        for row in players:
+            name, chat_id = row["name"], row["contact"]
+            if await _already_submitted(db, "wellness", name, today):
+                skipped += 1
+                continue
+            url = _build_checkin_url(name)
+            msg = (
+                f"Good morning {name}! 🏏 Don't forget your morning wellness check-in:\n"
+                f"{url}\n"
+                f"Takes less than 2 minutes!"
+            )
+            if send_telegram(chat_id, msg):
+                sent += 1
+            else:
+                failed += 1
 
-    logger.info("Morning reminders: %d sent, %d failed", sent, failed)
-    return {"sent": sent, "failed": failed, "total": sent + failed}
+    logger.info("Morning reminders: %d sent, %d failed, %d skipped (already submitted)", sent, failed, skipped)
+    return {"sent": sent, "failed": failed, "skipped": skipped, "total": sent + failed + skipped}
 
 
 async def send_evening_reminders(db_path) -> dict:
     import aiosqlite
+    from datetime import date
+    today = date.today().isoformat()
+
     async with aiosqlite.connect(db_path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
@@ -69,19 +86,22 @@ async def send_evening_reminders(db_path) -> dict:
         ) as cur:
             players = await cur.fetchall()
 
-    sent, failed = 0, 0
-    for row in players:
-        name, chat_id = row["name"], row["contact"]
-        url = _build_checkin_url(name)
-        msg = (
-            f"Hey {name}! Evening check-in reminder 🌙\n"
-            f"{url}\n"
-            f"Log your session & recovery before you sleep!"
-        )
-        if send_telegram(chat_id, msg):
-            sent += 1
-        else:
-            failed += 1
+        sent, failed, skipped = 0, 0, 0
+        for row in players:
+            name, chat_id = row["name"], row["contact"]
+            if await _already_submitted(db, "evening", name, today):
+                skipped += 1
+                continue
+            url = _build_checkin_url(name)
+            msg = (
+                f"Hey {name}! Evening check-in reminder 🌙\n"
+                f"{url}\n"
+                f"Log your session & recovery before you sleep!"
+            )
+            if send_telegram(chat_id, msg):
+                sent += 1
+            else:
+                failed += 1
 
-    logger.info("Evening reminders: %d sent, %d failed", sent, failed)
-    return {"sent": sent, "failed": failed, "total": sent + failed}
+    logger.info("Evening reminders: %d sent, %d failed, %d skipped (already submitted)", sent, failed, skipped)
+    return {"sent": sent, "failed": failed, "skipped": skipped, "total": sent + failed + skipped}
