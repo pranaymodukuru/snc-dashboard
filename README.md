@@ -6,6 +6,23 @@ Built this for my friend who is a Strength and Conditioning coach for Nalgonda K
 
 ---
 
+## Table of Contents
+
+- [Dashboard Panels](#dashboard-panels)
+  - [Team Overview](#team-overview)
+  - [Load Monitor](#load-monitor)
+  - [Player Profiles](#player-profiles)
+  - [Admin](#admin)
+  - [Raw Data](#raw-data)
+- [Architecture](#architecture)
+- [Local Development](#local-development)
+- [Deploying to Railway](#deploying-to-railway)
+- [Making Changes](#making-changes)
+- [Troubleshooting](#troubleshooting)
+- [Adding Session RPE and Bowling Data](#adding-session-rpe-and-bowling-data)
+
+---
+
 ## Dashboard Panels
 
 The dashboard is split into five tabs:
