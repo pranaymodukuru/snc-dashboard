@@ -170,6 +170,11 @@
   }
   .toggle-btn.yes.selected { border-color: var(--green); background: rgba(34,197,94,0.1); color: var(--green); }
   .toggle-btn.no.selected  { border-color: var(--red);   background: rgba(239,68,68,0.1);  color: var(--red);   }
+  /* sick: yes=red, no=green */
+  .toggle-btn.sick-yes.selected { border-color: var(--red);   background: rgba(239,68,68,0.1);  color: var(--red);   }
+  .toggle-btn.sick-no.selected  { border-color: var(--green); background: rgba(34,197,94,0.1); color: var(--green); }
+  /* bat/bowl: yes=green, no=neutral */
+  .toggle-btn.bat-bowl-no.selected { border-color: var(--border); background: var(--surface); color: var(--muted); }
 
   /* ── Radio option rows ── */
   .radio-grid { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
@@ -332,8 +337,8 @@
   <div class="question">
     <div class="q-label" style="margin-bottom:10px;">🤒 Are you sick today?</div>
     <div class="toggle-row">
-      <button class="toggle-btn yes" id="sick-yes" onclick="setSick(true)">Yes</button>
-      <button class="toggle-btn no"  id="sick-no"  onclick="setSick(false)">No</button>
+      <button class="toggle-btn sick-yes" id="sick-yes" onclick="setSick(true)">Yes</button>
+      <button class="toggle-btn sick-no"  id="sick-no"  onclick="setSick(false)">No</button>
     </div>
   </div>
 
@@ -430,7 +435,7 @@
       <div class="q-label" style="margin-bottom:10px;">Did you bowl today?</div>
       <div class="toggle-row">
         <button class="toggle-btn yes" id="bowl-yes" onclick="setBowled(true)">Yes</button>
-        <button class="toggle-btn no"  id="bowl-no"  onclick="setBowled(false)">No</button>
+        <button class="toggle-btn bat-bowl-no" id="bowl-no" onclick="setBowled(false)">No</button>
       </div>
     </div>
 
@@ -464,7 +469,7 @@
     <div class="q-label" style="margin-bottom:10px;">Did you bat today?</div>
     <div class="toggle-row">
       <button class="toggle-btn yes" id="bat-yes" onclick="setBatted(true)">Yes</button>
-      <button class="toggle-btn no"  id="bat-no"  onclick="setBatted(false)">No</button>
+      <button class="toggle-btn bat-bowl-no" id="bat-no" onclick="setBatted(false)">No</button>
     </div>
   </div>
 
